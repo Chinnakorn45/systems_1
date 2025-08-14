@@ -1,0 +1,410 @@
+body {
+    background: #f0f2f5; /* สีพื้นหลังเทาอ่อนแบบเป็นทางการ */
+    color: #333; /* สีตัวอักษรเข้มเพื่อให้อ่านง่ายขึ้น */
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif; /* ฟอนต์ sans-serif แบบเป็นทางการ */
+    line-height: 1.6;
+  }
+  
+  .user-card, .department-card {
+    max-width: 1200px; /* กว้างขึ้นเล็กน้อยเพื่อใส่เนื้อหาได้มากขึ้น */
+    margin: 40px auto 0 auto;
+    background: #ffffff;
+    border-radius: 8px; /* ขอบโค้งมนเล็กน้อยเพื่อความเป็นทางการ */
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.1); /* เงาบาง ๆ */
+    padding: 30px;
+    border: 1px solid #e0e6ec; /* ขอบสีอ่อน */
+  }
+  
+  .user-header, .department-header {
+    margin-bottom: 25px;
+    font-size: 26px; /* ขนาดหัวเรื่องใหญ่ขึ้นเล็กน้อย */
+    color: #1a3e6d; /* น้ำเงินเข้มสำหรับหัวเรื่องหลัก */
+    font-weight: 600; /* ตัวหนาปานกลาง */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e6ec; /* เส้นคั่นหัวเรื่อง */
+  }
+  
+  .user-title, .department-title {
+    font-size: 26px;
+    color: #1a3e6d;
+    margin: 0;
+    font-weight: 600;
+  }
+  
+  .user-desc {
+    color: #555;
+    margin-bottom: 0;
+    font-size: 16px; /* ขนาดตัวอักษรย่อหน้า */
+  }
+  
+  .user-search-box, .department-form {
+    margin-bottom: 25px;
+    display: flex;
+    gap: 15px; /* ระยะห่างระหว่างช่องกรอก */
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  
+  .user-search-box input[type="text"],
+  .department-form input,
+  .department-form select {
+    padding: 9px 15px; /* เพิ่ม padding ให้ช่องกรอก */
+    border-radius: 4px;
+    border: 1px solid #b0c0d2; /* สีขอบนุ่มนวล */
+    font-size: 16px;
+    color: #333;
+  }
+  
+  .user-search-box button,
+  .dep-btn,
+  .dep-add-btn,
+  .user-add-btn,
+  .user-manage-btn {
+    font-weight: 600;
+    font-size: 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease; /* ทรานซิชันนุ่มนวล */
+    padding: 9px 20px;
+    margin: 0 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: none; /* ไม่มีเงาสำหรับปุ่ม */
+    text-decoration: none; /* ไม่มีขีดเส้นใต้ */
+  }
+  
+  .user-add-btn {
+    background: #28a745; /* เขียวสำหรับปุ่มเพิ่ม */
+    color: #fff;
+  }
+  .user-add-btn:hover {
+    background: #218838;
+  }
+  
+  .user-manage-btn {
+    background: #007bff; /* น้ำเงินสำหรับปุ่มจัดการ */
+    color: #fff;
+  }
+  .user-manage-btn:hover {
+    background: #0056b3;
+  }
+  
+  .dep-btn.add {
+    background: #28a745;
+    color: #fff;
+  }
+  .dep-btn.add:hover {
+    background: #218838;
+  }
+  
+  .dep-btn.edit,
+  .user-search-box button {
+    background: #007bff;
+    color: #fff;
+    padding: 8px 15px; /* ลด padding สำหรับปุ่มแก้ไข */
+  }
+  .dep-btn.edit:hover,
+  .user-search-box button:hover {
+    background: #0056b3;
+  }
+  
+  .dep-btn.delete {
+    background: #dc3545; /* แดงสำหรับปุ่มลบ */
+    color: #fff;
+    padding: 8px 15px; /* ลด padding สำหรับปุ่มลบ */
+  }
+  .dep-btn.delete:hover {
+    background: #c82333;
+  }
+  
+  .dep-btn i {
+    margin-right: 8px; /* ระยะห่างไอคอน */
+    font-size: 16px;
+  }
+  
+  .department-actions,
+  .user-actions {
+    display: flex;
+    gap: 8px; /* ระยะห่างระหว่างปุ่ม */
+    justify-content: center;
+  }
+  
+  .user-add-btn, .user-manage-btn, .dep-btn, .dep-add-btn {
+    font-size: 13px;
+    padding: 5px 12px;
+  }
+  .dep-btn i, .user-add-btn i, .user-manage-btn i, .dep-add-btn i {
+    font-size: 13px;
+    margin-right: 4px;
+  }
+  .user-actions, .department-actions { gap: 2px; }
+  
+  .crud-form {
+    background: #ffffff;
+    border: 1px solid #e0e6ec;
+    border-radius: 8px;
+    padding: 25px;
+    max-width: 480px; /* ฟอร์มกว้างขึ้นเล็กน้อย */
+    margin: 35px auto;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  }
+  
+  .crud-form h3 {
+    margin-top: 0;
+    color: #1a3e6d;
+    font-size: 22px;
+    margin-bottom: 20px;
+    text-align: center;
+    font-weight: 600;
+  }
+  
+  .crud-form label {
+    margin-top: 8px;
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+    font-size: 16px;
+  }
+  
+  .crud-form input,
+  .crud-form select {
+    width: 100%;
+    padding: 9px 12px;
+    margin-bottom: 18px; /* เพิ่ม margin ด้านล่าง */
+    border: 1px solid #b0c0d2;
+    border-radius: 4px;
+    font-size: 16px;
+    color: #333;
+  }
+  
+  .crud-form button {
+    background: #007bff;
+    color: #fff;
+    border: none;
+    padding: 10px 22px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  .crud-form button:hover {
+    background: #0056b3;
+  }
+  
+  .crud-form .cancel-btn {
+    background: #6c757d; /* เทาอ่อนสำหรับปุ่มยกเลิก */
+    margin-left: 10px;
+    color: #fff;
+    text-decoration: none;
+    padding: 10px 22px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 16px;
+    display: inline-block;
+  }
+  .crud-form .cancel-btn:hover {
+    background: #5a6268;
+  }
+  
+  .crud-form .danger {
+    background: #dc3545;
+  }
+  .crud-form .danger:hover {
+    background: #c82333;
+  }
+  
+  .alert {
+    margin-bottom: 25px;
+    font-size: 16px;
+    border-radius: 6px;
+    padding: 12px 18px; /* เพิ่ม padding สำหรับ alert */
+    background: #e9f7ef; /* เขียวอ่อนสำหรับ alert สำเร็จ/ข้อมูล */
+    border: 1px solid #d4edda;
+    color: #155724; /* สีตัวอักษรเข้มสำหรับ alert */
+  }
+  
+  .user-table, .department-table {
+    width: 100%; /* ตารางเต็มความกว้าง */
+    border-collapse: collapse;
+    background: #ffffff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    table-layout: fixed; /* ตารางคงที่สำหรับความกว้างคอลัมน์ */
+  }
+  
+  .user-table th, .user-table td, .department-table th, .department-table td {
+    border: 1px solid #e0e6ec;
+    padding: 10px 12px; /* เพิ่ม padding ในเซลล์ */
+    text-align: left;
+    font-size: 15px; /* ขนาดตัวอักษรในตาราง */
+  }
+  
+  .user-table th, .department-table th {
+    background: #1a3e6d; /* น้ำเงินเข้มสำหรับหัวตาราง */
+    color: #fff;
+    font-weight: 600;
+    font-size: 16px; /* ขนาดตัวอักษรหัวตาราง */
+    text-transform: uppercase; /* ตัวพิมพ์ใหญ่สำหรับหัวตาราง */
+  }
+  
+  .user-table tr:nth-child(even), .department-table tr:nth-child(even) {
+    background: #f8f9fa; /* เทาอ่อนสำหรับแถวคู่ */
+  }
+  
+  .user-table tr:hover, .department-table tr:hover {
+    background: #e6f2ff; /* ฟ้าอ่อนเมื่อ hover ตาราง */
+  }
+  
+  .user-table td.email, .user-table td.department, .user-table td.position {
+    max-width: 250px; /* ความกว้างสูงสุดสำหรับคอลัมน์เหล่านี้ */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  .department-card {
+    max-width: 750px;
+    width: 100%;
+    margin: 36px auto 0 auto;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(34,51,107,0.08);
+    padding: 18px 16px 16px 16px;
+    border: 1px solid #e0e4ea;
+  }
+  
+  .popup-modal {
+    position: fixed; left: 0; top: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.18); display: flex; align-items: center; justify-content: center; z-index: 9999;
+}
+.popup-content {
+    background: #fff; border-radius: 14px; padding: 36px 38px; box-shadow: 0 4px 32px rgba(34,51,107,0.18);
+    display: flex; flex-direction: column; align-items: center; min-width: 260px; min-height: 120px;
+}
+.popup-content i { font-size: 48px; margin-bottom: 18px; }
+.popup-content .msg { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+  
+@media (max-width: 900px) {
+    .user-card, .department-card {
+    padding: 20px 3vw;
+    }
+}
+
+@media (max-width: 700px) {
+    .department-card {
+    padding: 15px 2vw;
+    }
+    .department-header {
+    font-size: 20px;
+    padding: 10px 10px 5px 10px;
+    }
+    .department-form {
+    flex-direction: column;
+    align-items: stretch;
+    }
+    .department-table th, .department-table td {
+    font-size: 14px;
+    padding: 8px 5px;
+    }
+    .user-search-box input[type="text"],
+    .department-form input,
+    .department-form select,
+    .user-search-box button,
+    .dep-btn,
+    .dep-add-btn,
+    .user-add-btn,
+    .user-manage-btn {
+      width: 100%; /* เต็มความกว้างบนหน้าจอเล็ก */
+    margin: 5px 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .user-title {
+    font-size: 20px;
+    }
+    .user-table th, .user-table td {
+    font-size: 14px;
+    }
+}
+
+/* ฟอร์มกรอง log */
+.log-filter-form {
+    margin-bottom: 18px;
+    display: flex;
+    gap: 18px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    background: #f7e7b4;
+    border-radius: 10px;
+    padding: 16px 18px 10px 18px;
+    box-shadow: 0 2px 8px rgba(191,161,74,0.07);
+}
+.log-filter-form label {
+    font-weight: 600;
+    color: #1a3e6d;
+    margin-bottom: 4px;
+    display: block;
+}
+.log-filter-form input[type="text"],
+.log-filter-form input[type="date"],
+.log-filter-form select {
+    width: 160px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid #d8e0e7;
+    font-size: 15px;
+    margin-bottom: 0;
+}
+.log-filter-form button {
+    background: #bfa14a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 22px;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.18s;
+    margin-left: 8px;
+}
+.log-filter-form button:hover {
+    background: #a88c2c;
+}
+/* ตาราง log */
+.log-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 18px;
+    font-size: 15px;
+    box-shadow: 0 2px 8px rgba(191,161,74,0.07);
+}
+.log-table th, .log-table td {
+    border: 1px solid #e7e2d1;
+    padding: 9px 12px;
+    text-align: left;
+}
+.log-table th {
+    background: #f7e7b4;
+    color: #1a3e6d;
+    font-weight: 700;
+    font-size: 16px;
+}
+.log-table td {
+    background: #fff;
+    color: #22336b;
+}
+.log-table tr:nth-child(even) td {
+    background: #f9f6ef;
+}
+.log-table tr:hover td {
+    background: #f1e6c7;
+}

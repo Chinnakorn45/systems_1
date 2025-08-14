@@ -1,0 +1,224 @@
+/* โครงสร้างหลักของหน้าและตัวอักษร */
+body {
+    background: linear-gradient(135deg, #e0e6ec 0%, #f7f9fc 100%); /* พื้นหลังไล่สีฟ้า-เทาแบบเป็นทางการ */
+    min-height: 100vh;
+    color: #333;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif; /* ฟอนต์ sans-serif แบบเป็นทางการ */
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* ส่วนหัว (Header) */
+.main-header {
+    background: #fff;
+    border-bottom: 3px solid #1a3e6d; /* เส้นขอบล่างน้ำเงินเข้มแบบเป็นทางการ */
+    box-shadow: 0 2px 8px rgba(26,62,109,0.07); /* เงาเข้ากับสี header */
+    padding: 0;
+}
+.header-content {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 22px 0 22px 24px;
+    max-width: none;
+    margin: 0;
+}
+.logo {
+    display: flex;
+    align-items: center;
+}
+.logo img {
+    height: 74px;
+    margin-right: 22px;
+}
+.logo span {
+    display: block;
+    font-size: 1.35rem;
+    color: #1a3e6d;
+    font-weight: 700;
+    line-height: 1.2;
+}
+.logo .subtitle {
+    display: block;
+    font-size: 1.12rem;
+    color: #1a3e6d;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* พื้นที่เนื้อหาหลัก */
+main {
+    background-color: #f7f9fc; /* สีเทาอ่อนสำหรับพื้นหลังเนื้อหา */
+    padding: 40px 0;
+    min-height: calc(100vh - 80px); /* ปรับตามความสูง header */
+    display: flex;
+    align-items: flex-start; /* จัดเนื้อหาไว้ด้านบน */
+    justify-content: center; /* จัดกึ่งกลางแนวนอน */
+}
+
+.hero-section {
+    padding: 40px 0 0 0;
+    background: none;
+}
+.hero-content {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.intro-card {
+    background: #fff;
+    border-radius: 10px; /* ขอบโค้งมนเล็กน้อย */
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08); /* เงาบาง ๆ */
+    border: 1px solid #d8e0e7; /* ขอบสีอ่อน */
+    padding: 30px; /* padding น้อยลงเล็กน้อย */
+    margin-bottom: 30px; /* margin น้อยลงเล็กน้อย */
+    width: 100%;
+    max-width: 900px;
+}
+.intro-card h2 {
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif; /* ฟอนต์ทางการ */
+    font-size: 2.0rem; /* ขนาดหัวเรื่องใหญ่ */
+    color: #1a3e6d; /* น้ำเงินเข้ม */
+    margin-bottom: 10px; /* margin น้อยลง */
+    font-weight: 600; /* ตัวหนาปานกลาง */
+}
+.intro-card h2 .fas {
+    margin-right: 10px;
+    color: #007bff; /* ไอคอนสีน้ำเงินมาตรฐาน */
+}
+.intro-card p {
+    font-size: 1.0rem; /* ขนาดย่อหน้ามาตรฐาน */
+    color: #444;
+    line-height: 1.6;
+}
+
+/* ป้าย Admin Control */
+.admin-control-badge {
+    background: #0056b3; /* น้ำเงินเข้มสำหรับ badge */
+    color: #fff;
+    font-weight: 600;
+    border-radius: 20px;
+    padding: 8px 25px; /* padding มากขึ้นเพื่อความเด่น */
+    font-size: 1.0rem;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-control-badge .fas {
+    margin-right: 8px;
+    color: #fff; /* ไอคอนสีขาว */
+}
+
+/* การ์ดฟีเจอร์ */
+.feature-cards {
+    display: flex;
+    gap: 25px; /* ระยะห่างน้อยลง */
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 35px; /* margin น้อยลง */
+}
+.feature-card {
+    background: #fff;
+    border-radius: 10px; /* ขอบโค้งมนสม่ำเสมอ */
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08); /* เงาบาง ๆ */
+    border: 1px solid #d8e0e7; /* ขอบสีอ่อน */
+    padding: 28px 24px; /* padding น้อยลง */
+    width: 250px; /* กว้างน้อยลง */
+    text-align: center;
+    text-decoration: none;
+    color: #1a3e6d; /* น้ำเงินเข้ม */
+    transition: box-shadow 0.2s ease, border 0.2s ease, transform 0.2s ease;
+    position: relative;
+    font-size: 1.0rem;
+    font-weight: 500;
+}
+.feature-card:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12); /* เงาเข้มขึ้นเมื่อ hover */
+    border: 1px solid #007bff; /* ขอบน้ำเงินสดเมื่อ hover */
+    transform: translateY(-3px) scale(1.02); /* ยกการ์ดขึ้นเล็กน้อย */
+    color: #0056b3; /* น้ำเงินเข้มขึ้นเมื่อ hover */
+}
+.icon-wrapper {
+    background: #e6f2ff; /* ฟ้าอ่อนสำหรับพื้นหลังไอคอน */
+    border-radius: 50%;
+    width: 60px; /* ขนาดไอคอนเล็กลง */
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 15px auto; /* margin น้อยลง */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* เงาบาง ๆ */
+}
+.feature-card i {
+    font-size: 2.0rem; /* ขนาดไอคอนเล็กลง */
+    color: #007bff; /* ไอคอนสีน้ำเงินมาตรฐาน */
+}
+.feature-card h3 {
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif; /* ฟอนต์ทางการ */
+    font-size: 1.1rem; /* ขนาดหัวเรื่องเล็กลง */
+    font-weight: 600;
+    margin: 0;
+    color: inherit;
+}
+
+/* Responsive เบื้องต้น */
+@media (max-width: 768px) {
+    .header-content {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 15px 0 10px 12px;
+    }
+    .logo img {
+        height: 54px;
+        margin-right: 0;
+        margin-bottom: 8px;
+    }
+    .logo span {
+        font-size: 1.08rem;
+    }
+    .logo .subtitle {
+        font-size: 0.98rem;
+    }
+    .feature-cards {
+        flex-direction: column;
+        align-items: center;
+        gap: 20px; /* ปรับระยะห่าง */
+    }
+    .feature-card {
+        width: 90%; /* การ์ดกว้างขึ้นบนจอเล็ก */
+        max-width: 320px;
+        padding: 25px 20px; /* ปรับ padding */
+    }
+}
+
+@media (max-width: 480px) {
+    .intro-card {
+        padding: 20px;
+    }
+    .intro-card h2 {
+        font-size: 1.6rem; /* หัวเรื่องเล็กลงบนจอเล็ก */
+    }
+    .intro-card p {
+        font-size: 0.95rem; /* ขนาดย่อหน้าลดลง */
+    }
+    .admin-control-badge {
+        font-size: 0.95rem;
+        padding: 6px 18px;
+    }
+}
+
+@media (max-width: 900px) {
+    .hero-content, .intro-card { max-width: 95vw; } /* padding เพิ่มขึ้นเล็กน้อย */
+    .feature-cards { gap: 20px; }
+    .feature-card { width: 90vw; max-width: 300px; }
+}

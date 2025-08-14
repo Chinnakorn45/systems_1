@@ -1,0 +1,12 @@
+/* ปุ่ม */
+.btn-add { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+.btn-add:hover { background: #764ba2; color: #fff; }
+
+/* ตาราง */
+.table { width: 100%; background: #fff; }
+.table-responsive { width: 100%; overflow-x: auto; }
+.table th, .table td { white-space: nowrap; font-size: 0.875rem; padding: 10px 12px; vertical-align: middle; }
+.table thead th { background: #c8e6c9; color: #333; }
+
+/* Card */
+.card-body { padding: 0; }
