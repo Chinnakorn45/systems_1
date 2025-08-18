@@ -1,9 +1,6 @@
 <?php
 // ====== DB ======
-$host = 'localhost'; $user = 'root'; $pass = ''; $db = 'borrowing_db';
-$conn = new mysqli($host, $user, $pass, $db);
-if ($conn->connect_error) die('Connection failed: '.$conn->connect_error);
-$conn->set_charset('utf8mb4');
+require_once __DIR__ . '/db.php';
 
 // ====== Helpers ======
 function table_exists(mysqli $c, $t){ $t=$c->real_escape_string($t); $r=$c->query("SHOW TABLES LIKE '$t'"); return $r&&$r->num_rows>0; }

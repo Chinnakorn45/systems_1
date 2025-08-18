@@ -5,12 +5,7 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 // Database connection settings
-$host = 'localhost';
-$user = 'root';
-$pass = '';
-$db = 'borrowing_db'; // <-- เปลี่ยนชื่อตามฐานข้อมูลของคุณ
-
-$conn = new mysqli($host, $user, $pass, $db);
+require_once __DIR__ . '/../db.php';
 if ($conn->connect_error) {
     die('Connection failed: ' . $conn->connect_error);
 }

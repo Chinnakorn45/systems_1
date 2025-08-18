@@ -14,7 +14,7 @@ $success = null;
 
 // เก็บค่าปัจจุบันจากคอนสแตนต์
 $currentHostConst = defined('DB_SERVER')   ? DB_SERVER   : 'localhost';
-$currentUserConst = defined('DB_USERNAME') ? DB_USERNAME : 'root';
+$currentUserConst = defined('DB_USERNAME') ? DB_USERNAME : 'appuser';
 $currentPassConst = defined('DB_PASSWORD') ? DB_PASSWORD : '';
 $currentNameConst = defined('DB_NAME')     ? DB_NAME     : 'borrowing_db';
 

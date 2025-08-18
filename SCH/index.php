@@ -6,14 +6,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 $canLookup = true; 
 
 // ----------------- DB -----------------
-$host = 'localhost';
-$user = 'root';
-$pass = '';
-$db   = 'borrowing_db';
-
-$conn = new mysqli($host, $user, $pass, $db);
-if ($conn->connect_error) die('Connection failed: ' . $conn->connect_error);
-$conn->set_charset('utf8mb4');
+require_once __DIR__ . '/db.php';
 
 // ----------------- Settings / Branding -----------------
 $hospital_name_en = 'Suratthani Cancer Hospital';

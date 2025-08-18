@@ -1,12 +1,7 @@
 <?php
 session_start();
-// เชื่อมต่อฐานข้อมูลโดยตรงในไฟล์นี้
-$host = 'localhost';
-$user = 'root';
-$pass = '';
-$db = 'borrowing_db';
-$conn = new mysqli($host, $user, $pass, $db);
-if ($conn->connect_error) die('Connection failed: ' . $conn->connect_error);
+// เชื่อมต่อฐานข้อมูลโดยใช้ไฟล์ส่วนกลาง
+require_once __DIR__ . '/../db.php';
 $popup = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username']);

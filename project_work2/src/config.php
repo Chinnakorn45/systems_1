@@ -9,7 +9,7 @@ if (file_exists($localPath)) {
 
 // --- 2) ค่าเริ่มต้น/ENV (กำหนดเฉพาะที่ยังไม่ถูก define) ---
 if (!defined('DB_SERVER'))     define('DB_SERVER', getenv('DB_SERVER') ?: 'localhost');
-if (!defined('DB_USERNAME'))   define('DB_USERNAME', getenv('DB_USERNAME') ?: 'root');
+if (!defined('DB_USERNAME'))   define('DB_USERNAME', getenv('DB_USERNAME') ?: 'appuser');
 if (!defined('DB_PASSWORD'))   define('DB_PASSWORD', getenv('DB_PASSWORD') ?: '');
 if (!defined('DB_NAME'))       define('DB_NAME',   getenv('DB_NAME')   ?: 'borrowing_db');
 

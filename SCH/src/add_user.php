@@ -4,12 +4,7 @@ if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit;
 }
-$host = 'localhost';
-$user = 'root';
-$pass = '';
-$db = 'borrowing_db';
-$conn = new mysqli($host, $user, $pass, $db);
-if ($conn->connect_error) die('Connection failed: ' . $conn->connect_error);
+require_once __DIR__ . '/../db.php';
 $popup = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username']);

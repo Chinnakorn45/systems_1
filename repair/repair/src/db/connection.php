@@ -1,9 +1,9 @@
 <?php
 // Database configuration
-$host = 'localhost'; // Database host
-$dbname = 'repair_db'; // Database name
-$username = 'root'; // Database username
-$password = ''; // Database password
+$host = getenv('DB_HOST') ?: 'localhost'; // Database host
+$dbname = getenv('DB_NAME') ?: 'repair_db'; // Database name
+$username = getenv('DB_USERNAME') ?: 'appuser'; // Database username
+$password = getenv('DB_PASSWORD') ?: ''; // Database password
 
 try {
     // Create a new PDO instance
