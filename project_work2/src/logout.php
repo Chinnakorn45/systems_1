@@ -48,6 +48,6 @@ if (ini_get("session.use_cookies")) {
 session_destroy();
 
 // Redirect ไปหน้า login
-header("location: /SCH/index.php");
+header('Location: /systems_1/sch/index.php');
 exit;
 ?>

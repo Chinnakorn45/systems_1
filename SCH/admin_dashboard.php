@@ -343,4 +343,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </body>
 </html>
-<?php $conn->close(); ?> 
+<?php $conn->close(); ?> ทำให้สามารถเคลียร์ข้อมูลได้

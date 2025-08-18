@@ -14,5 +14,5 @@ if (isset($_SESSION['user_id'], $_SESSION['full_name'])) {
 // Destroy session and redirect
 session_unset();
 session_destroy();
-header('Location: /SCH/index.php');
+header('Location: /systems_1/sch/index.php');
 exit;
