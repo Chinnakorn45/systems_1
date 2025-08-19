@@ -13,7 +13,7 @@ if ($_SESSION["role"] !== "admin") {
         header('Location: borrowings.php');
         exit;
     }
-    header("location: index.php"); // หรือจะแสดงข้อความว่าไม่มีสิทธิ์ก็ได้
+    header("location: index.php");
     exit;
 }
 
@@ -30,8 +30,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     $borrowings_count = mysqli_fetch_assoc($result_check)['count'];
     mysqli_stmt_close($stmt_check);
     
-    // ตรวจสอบว่าครุภัณฑ์มีการเคลื่อนไหวล่าสุดหรือไม่ (เช่น ส่งซ่อม)
-    $check_movements = "SELECT COUNT(*) as count FROM equipment_movements WHERE item_id = ? AND movement_type IN ('maintenance', 'disposal') ORDER BY movement_date DESC LIMIT 1";
+    // ตรวจสอบการเคลื่อนไหวล่าสุด
+    $check_movements = "SELECT COUNT(*) as count FROM equipment_movements WHERE item_id = ? AND movement_type IN ('maintenance', 'disposal')";
     $stmt_movements = mysqli_prepare($link, $check_movements);
     mysqli_stmt_bind_param($stmt_movements, "i", $item_id);
     mysqli_stmt_execute($stmt_movements);
@@ -39,7 +39,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     $movements_count = mysqli_fetch_assoc($result_movements)['count'];
     mysqli_stmt_close($stmt_movements);
     
-    // ตรวจสอบว่าครุภัณฑ์มีการส่งซ่อมอยู่หรือไม่ (ตาราง repairs)
+    // ตรวจสอบงานซ่อม
     $check_repairs = "SELECT COUNT(*) as count FROM repairs WHERE item_id = ? AND status NOT IN ('completed', 'cancelled')";
     $stmt_repairs = mysqli_prepare($link, $check_repairs);
     mysqli_stmt_bind_param($stmt_repairs, "i", $item_id);
@@ -49,27 +49,21 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     mysqli_stmt_close($stmt_repairs);
     
     if ($borrowings_count > 0) {
-        // มีการยืมอยู่ ไม่สามารถลบได้
         $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการยืมอยู่";
         header("location: items.php");
         exit;
     }
-    
     if ($movements_count > 0) {
-        // มีการเคลื่อนไหวล่าสุด (เช่น ส่งซ่อม) ไม่สามารถลบได้
         $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการส่งซ่อมหรือเคลื่อนไหวอยู่";
         header("location: items.php");
         exit;
     }
-    
     if ($repairs_count > 0) {
-        // มีการส่งซ่อมอยู่ ไม่สามารถลบได้
         $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการส่งซ่อมอยู่";
         header("location: items.php");
         exit;
     }
     
-    // ถ้าไม่มีปัญหาใดๆ ให้ลบได้
     $sql = "DELETE FROM items WHERE item_id = ?";
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "i", $item_id);
@@ -84,23 +78,28 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     }
 }
 
-// ดึงข้อมูลครุภัณฑ์
-// ฟังก์ชันค้นหา
+// ดึงข้อมูล + ค้นหา
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $where = '';
 if ($search !== '') {
     $search_esc = mysqli_real_escape_string($link, $search);
-    $where = "WHERE i.item_number LIKE '%$search_esc%' OR i.serial_number LIKE '%$search_esc%' OR i.model_name LIKE '%$search_esc%' OR c.category_name LIKE '%$search_esc%' OR i.note LIKE '%$search_esc%' OR i.location LIKE '%$search_esc%'";
+    $where = "WHERE i.item_number LIKE '%$search_esc%' 
+              OR i.serial_number LIKE '%$search_esc%' 
+              OR i.model_name LIKE '%$search_esc%' 
+              OR c.category_name LIKE '%$search_esc%' 
+              OR i.note LIKE '%$search_esc%' 
+              OR i.location LIKE '%$search_esc%'";
 }
 $sql = "SELECT i.*, c.category_name,
         CASE 
             WHEN EXISTS (SELECT 1 FROM borrowings b WHERE b.item_id = i.item_id AND b.status IN ('borrowed', 'pending', 'overdue')) THEN 'borrowed'
             WHEN EXISTS (SELECT 1 FROM repairs r WHERE r.item_id = i.item_id AND r.status NOT IN ('completed', 'cancelled')) THEN 'repair'
-            WHEN EXISTS (SELECT 1 FROM equipment_movements em WHERE em.item_id = i.item_id AND em.movement_type IN ('maintenance', 'disposal') ORDER BY em.movement_date DESC LIMIT 1) THEN 'maintenance'
+            WHEN EXISTS (SELECT 1 FROM equipment_movements em WHERE em.item_id = i.item_id AND em.movement_type IN ('maintenance', 'disposal')) THEN 'maintenance'
             ELSE 'available'
         END as current_status
         FROM items i 
-        LEFT JOIN categories c ON i.category_id = c.category_id $where";
+        LEFT JOIN categories c ON i.category_id = c.category_id
+        $where";
 $result = mysqli_query($link, $sql);
 ?>
 <!DOCTYPE html>
@@ -111,216 +110,195 @@ $result = mysqli_query($link, $sql);
     <title>จัดการครุภัณฑ์ - ระบบบันทึกคลังครุภัณฑ์</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <!-- Google Fonts for Thai (Prompt & Kanit) -->
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="sidebar.css">
     <link rel="stylesheet" href="common-ui.css">
 </head>
 <body>
+
 <!-- Navbar (Mobile Only) -->
 <nav class="navbar navbar-light bg-white d-md-none shadow-sm sticky-top">
-<div class="container-fluid px-2">
-    <button class="btn" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileMenu" aria-controls="mobileMenu">
-    <span class="navbar-toggler-icon"></span>
+  <div class="container-fluid px-2">
+    <!-- ปุ่มนี้อ้างถึง offcanvas ที่ประกาศภายใน sidebar.php -->
+    <button class="btn" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSidebar" aria-controls="offcanvasSidebar">
+      <span class="navbar-toggler-icon"></span>
     </button>
     <span class="fw-bold">จัดการครุภัณฑ์</span>
-    <!-- ลบ user dropdown ออก -->
-</div>
+  </div>
 </nav>
-<!-- Offcanvas Mobile Menu -->
-<div class="offcanvas offcanvas-start d-md-none" tabindex="-1" id="mobileMenu" aria-labelledby="mobileMenuLabel">
-<div class="offcanvas-header">
-    <h5 class="offcanvas-title" id="mobileMenuLabel"><i class="fas fa-boxes me-2"></i>เมนู</h5>
-    <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-</div>
-<div class="offcanvas-body p-0">
-    <nav class="nav flex-column">
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='index.php') echo ' active'; ?>" href="index.php">
-        <i class="fas fa-tachometer-alt me-2"></i> แดชบอร์ด
-    </a>
-    <a class="nav-link text-danger<?php if(basename($_SERVER['PHP_SELF'])=='http://192.168.14.10/repair/src/login.php') echo ' active'; ?>" href="http://192.168.14.10/repair/src/login.php">
-        <i class="fas fa-tools me-2"></i> แจ้งซ่อมครุภัณฑ์
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='borrowings.php') echo ' active'; ?>" href="borrowings.php">
-        <i class="fas fa-exchange-alt me-2"></i> การยืม-คืน
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='supplies.php') echo ' active'; ?>" href="supplies.php">
-        <i class="fas fa-paperclip me-2"></i> วัสดุสำนักงาน
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='dispensations.php') echo ' active'; ?>" href="dispensations.php">
-        <i class="fas fa-dolly me-2"></i> การเบิกวัสดุ
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='equipment_history.php') echo ' active'; ?>" href="equipment_history.php">
-        <i class="fas fa-history me-2"></i> ประวัติการเคลื่อนไหว
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='reports.php') echo ' active'; ?>" href="reports.php">
-        <i class="fas fa-chart-bar me-2"></i> รายงาน
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='items.php') echo ' active'; ?>" href="items.php">
-        <i class="fas fa-box me-2"></i> จัดการครุภัณฑ์
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='users.php') echo ' active'; ?>" href="users.php">
-        <i class="fas fa-users me-2"></i> จัดการผู้ใช้
-    </a>
-    <a class="nav-link<?php if(basename($_SERVER['PHP_SELF'])=='user_guide.php') echo ' active'; ?>" href="user_guide.php">
-        <i class="fas fa-book-open me-2"></i> คู่มือการใช้งาน
-    </a>
-    </nav>
-</div>
-</div>
+
 <div class="container-fluid">
-    <div class="row">
-        <!-- Sidebar (Desktop Only) และ Offcanvas (Mobile) -->
-        <?php include 'sidebar.php'; ?>
-        <!-- Main Content -->
-        <div class="col-md-9 col-lg-10 px-0">
-            <div class="main-content mt-4 mt-md-5">
-                <!-- User Dropdown (Desktop Only) -->
-                <!-- ลบ user dropdown (desktop) ออก -->
-                
-                <!-- แสดงข้อความแจ้งเตือน -->
-                <?php if (isset($_SESSION['success_message'])): ?>
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="fas fa-check-circle me-2"></i>
-                        <?php echo $_SESSION['success_message']; ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                    <?php unset($_SESSION['success_message']); ?>
-                <?php endif; ?>
-                
-                <?php if (isset($_SESSION['error_message'])): ?>
-                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        <?php echo $_SESSION['error_message']; ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                    <?php unset($_SESSION['error_message']); ?>
-                <?php endif; ?>
-                
-                <div class="d-flex align-items-center mb-4">
-                    <h2 class="me-auto"><i class="fas fa-box"></i> จัดการครุภัณฑ์</h2>
-                    <div class="d-flex justify-content-end flex-nowrap" style="gap: 6px;">
-                        <a href="item_form.php" class="btn btn-add"><i class="fas fa-plus"></i> เพิ่มครุภัณฑ์</a>
-                        <a href="categories.php" class="btn btn-secondary"><i class="fas fa-list"></i> จัดการหมวดหมู่</a>
-                        <a href="brands.php" class="btn btn-secondary"><i class="fas fa-trademark"></i> จัดการยี่ห้อ/ชื่อรุ่น</a>
-                    </div>
-                </div>
-                <input type="text" id="itemSearch" class="form-control mb-3" style="max-width:350px;" placeholder="ค้นหารายการครุภัณฑ์...">
-                <div class="card shadow-sm">
-                    <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-bordered table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>เลขครุภัณฑ์</th>
-                                <th>Serial Number</th>
-                                <th>รุ่นครุภัณฑ์</th>
-                                <th>หมวดหมู่</th>
-                                <th>จำนวน</th>
-                                <th>ราคาต่อหน่วย</th>
-                                <th>ราคารวม</th>
-                                <th>รูป</th>
-                                <th>หมายเหตุ</th>
-                                <th>ตำแหน่ง</th>
-                                <th>วันที่จัดซื้อ</th>
-                                <th>สถานะ</th>
-                                <th>จัดการ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php 
-                            $row_count = 0;
-                            while ($row = mysqli_fetch_assoc($result)): 
-                                $row_count++;
-                            ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($row['item_number']); ?></td>
-                                <td><?php echo htmlspecialchars(isset($row['serial_number']) ? $row['serial_number'] : ''); ?></td>
-                                <td><?php echo htmlspecialchars($row['model_name']); ?></td>
-                                <td><?php echo htmlspecialchars($row['category_name']); ?></td>
-                                <td><?php echo $row['total_quantity']; ?></td>
-                                <td><?php echo isset($row['price_per_unit']) ? number_format($row['price_per_unit'], 2) : '-'; ?></td>
-                                <td><?php echo isset($row['total_price']) ? number_format($row['total_price'], 2) : '-'; ?></td>
-                                <td><?php if (!empty($row['image'])): ?><img src="<?php echo htmlspecialchars($row['image']); ?>" alt="รูป" style="max-width:60px;max-height:60px;object-fit:cover;"> <?php endif; ?></td>
-                                <td><?php echo htmlspecialchars($row['note'] ?? ''); ?></td>
-                                <td><?php echo htmlspecialchars($row['location']); ?></td>
-                                <td><?php echo $row['purchase_date'] ? thaidate('j M Y', $row['purchase_date']) : '-'; ?></td>
-                                <td>
-                                    <?php 
-                                    $status_text = '';
-                                    $status_class = '';
-                                    switch($row['current_status']) {
-                                        case 'borrowed':
-                                            $status_text = 'กำลังยืม';
-                                            $status_class = 'badge bg-warning text-dark';
-                                            break;
-                                        case 'repair':
-                                            $status_text = 'ส่งซ่อม';
-                                            $status_class = 'badge bg-danger';
-                                            break;
-                                        case 'maintenance':
-                                            $status_text = 'บำรุงรักษา';
-                                            $status_class = 'badge bg-info';
-                                            break;
-                                        case 'available':
-                                            $status_text = 'พร้อมใช้งาน';
-                                            $status_class = 'badge bg-success';
-                                            break;
-                                        default:
-                                            $status_text = 'ไม่ทราบสถานะ';
-                                            $status_class = 'badge bg-secondary';
-                                    }
-                                    ?>
-                                    <span class="<?php echo $status_class; ?>"><?php echo $status_text; ?></span>
-                                </td>
-                                <td class="d-flex gap-1 align-items-center">
-                                    <a href="item_form2.php?id=<?php echo $row['item_id']; ?>" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
-                                    <?php if ($row['current_status'] === 'available'): ?>
-                                        <a href="items.php?action=delete&id=<?php echo $row['item_id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('ยืนยันการลบครุภัณฑ์นี้?');"><i class="fas fa-trash"></i></a>
-                                    <?php else: ?>
-                                        <button class="btn btn-sm btn-secondary" disabled title="ไม่สามารถลบครุภัณฑ์ที่มีการยืมหรือส่งซ่อมอยู่ได้"><i class="fas fa-trash"></i></button>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endwhile; ?>
-                            
-                            <?php if($row_count == 0): ?>
-                                <tr>
-                                    <td colspan="13" class="text-center py-4">
-                                        <div class="text-muted">
-                                            <i class="fas fa-box fa-3x mb-3"></i>
-                                            <h5>ไม่พบข้อมูลครุภัณฑ์</h5>
-                                            <p class="mb-0">ยังไม่มีรายการครุภัณฑ์ในระบบ</p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+  <div class="row">
+    <!-- เรียก Sidebar จากไฟล์เดียว (ทั้ง Desktop + Mobile offcanvas ต้องอยู่ใน sidebar.php) -->
+    <?php include 'sidebar.php'; ?>
+
+    <!-- Main Content -->
+    <div class="col-md-9 col-lg-10 px-0">
+      <div class="main-content mt-4 mt-md-5">
+
+        <!-- Alerts -->
+        <?php if (isset($_SESSION['success_message'])): ?>
+          <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle me-2"></i>
+            <?= $_SESSION['success_message']; ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+          <?php unset($_SESSION['success_message']); ?>
+        <?php endif; ?>
+
+        <?php if (isset($_SESSION['error_message'])): ?>
+          <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <?= $_SESSION['error_message']; ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+          <?php unset($_SESSION['error_message']); ?>
+        <?php endif; ?>
+
+        <!-- Header actions -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
+          <h2 class="mb-0"><i class="fas fa-box me-2"></i>จัดการครุภัณฑ์</h2>
+          <input type="text" id="itemSearch" class="form-control mb-2 mb-md-0" style="max-width:350px;" placeholder="ค้นหารายการครุภัณฑ์...">
+          <div class="d-flex gap-2">
+            <a href="categories.php" class="btn btn-secondary"><i class="fas fa-list"></i> จัดการหมวดหมู่</a>
+            <a href="brands.php" class="btn btn-secondary"><i class="fas fa-trademark"></i> จัดการยี่ห้อ/รุ่น</a>
+            <a href="item_form.php" class="btn btn-add"><i class="fas fa-plus"></i> เพิ่มครุภัณฑ์</a>
+          </div>
         </div>
+
+        <!-- ตาราง (เลื่อนเฉพาะตาราง + thead sticky) -->
+        <div class="card shadow-sm">
+          <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+              <table class="table table-bordered table-hover align-middle mb-0">
+                <thead class="sticky-top bg-white" style="z-index: 1020;">
+                  <tr>
+                    <th>เลขครุภัณฑ์</th>
+                    <th>Serial Number</th>
+                    <th>รุ่นครุภัณฑ์</th>
+                    <th>หมวดหมู่</th>
+                    <th>จำนวน</th>
+                    <th>ราคาต่อหน่วย</th>
+                    <th>ราคารวม</th>
+                    <th>รูป</th>
+                    <th>หมายเหตุ</th>
+                    <th>ตำแหน่ง</th>
+                    <th>วันที่จัดซื้อ</th>
+                    <th>สถานะ</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php 
+                  $row_count = 0;
+                  while ($row = mysqli_fetch_assoc($result)):
+                    $row_count++;
+                  ?>
+                  <tr>
+                    <td><?= htmlspecialchars($row['item_number']) ?></td>
+                    <td><?= htmlspecialchars($row['serial_number'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($row['model_name']) ?></td>
+                    <td><?= htmlspecialchars($row['category_name']) ?></td>
+                    <td><?= (int)$row['total_quantity'] ?></td>
+                    <td><?= isset($row['price_per_unit']) ? number_format($row['price_per_unit'], 2) : '-' ?></td>
+                    <td><?= isset($row['total_price']) ? number_format($row['total_price'], 2) : '-' ?></td>
+                    <td>
+                      <?php if (!empty($row['image'])): ?>
+                        <img src="<?= htmlspecialchars($row['image']) ?>" alt="รูป" style="max-width:60px;max-height:60px;object-fit:cover;">
+                      <?php endif; ?>
+                    </td>
+                    <td><?= htmlspecialchars($row['note'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($row['location']) ?></td>
+                    <td><?= $row['purchase_date'] ? thaidate('j M Y', $row['purchase_date']) : '-' ?></td>
+                    <td>
+                      <?php 
+                        switch($row['current_status']) {
+                          case 'borrowed':     echo '<span class="badge bg-warning text-dark">กำลังยืม</span>'; break;
+                          case 'repair':       echo '<span class="badge bg-danger">ส่งซ่อม</span>'; break;
+                          case 'maintenance':  echo '<span class="badge bg-info">บำรุงรักษา</span>'; break;
+                          default:             echo '<span class="badge bg-success">พร้อมใช้งาน</span>';
+                        }
+                      ?>
+                    </td>
+                    <td class="d-flex gap-1 align-items-center">
+                      <a href="item_form2.php?id=<?= (int)$row['item_id'] ?>" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
+                      <?php if ($row['current_status'] === 'available'): ?>
+                        <a href="items.php?action=delete&id=<?= (int)$row['item_id'] ?>" class="btn btn-sm btn-danger" onclick="return confirm('ยืนยันการลบครุภัณฑ์นี้?');"><i class="fas fa-trash"></i></a>
+                      <?php else: ?>
+                        <button class="btn btn-sm btn-secondary" disabled title="ไม่สามารถลบครุภัณฑ์ที่มีการยืมหรือส่งซ่อมอยู่ได้">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      <?php endif; ?>
+                    </td>
+                  </tr>
+                  <?php endwhile; ?>
+
+                  <?php if ($row_count == 0): ?>
+                    <tr>
+                      <td colspan="13" class="text-center py-4">
+                        <div class="text-muted">
+                          <i class="fas fa-box fa-3x mb-3"></i>
+                          <h5>ไม่พบข้อมูลครุภัณฑ์</h5>
+                          <p class="mb-0">ยังไม่มีรายการครุภัณฑ์ในระบบ</p>
+                        </div>
+                      </td>
+                    </tr>
+                  <?php endif; ?>
+                </tbody>
+              </table>
+            </div><!-- /.table-responsive -->
+          </div><!-- /.card-body -->
+        </div><!-- /.card -->
+
+      </div>
     </div>
-</div>
-    </div>
+  </div>
 </div>
 
+<!-- JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// ค้นหาแบบเรียลไทม์
 document.getElementById('itemSearch').addEventListener('input', function() {
-    const filter = this.value.toLowerCase();
-    const rows = document.querySelectorAll('table tbody tr');
-    rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(filter) ? '' : 'none';
-    });
+  const filter = this.value.toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  let visibleCount = 0;
+
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    const show = text.includes(filter);
+    row.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+
+  // แสดง/ซ่อนแถว "ไม่พบผลลัพธ์"
+  let noResultsRow = document.querySelector('.no-results-row');
+  if (visibleCount === 0 && !noResultsRow) {
+    const tbody = document.querySelector('table tbody');
+    const newRow = document.createElement('tr');
+    newRow.className = 'no-results-row';
+    newRow.innerHTML = `
+      <td colspan="13" class="text-center py-4">
+        <div class="text-muted">
+          <i class="fas fa-search fa-3x mb-3"></i>
+          <h5>ไม่พบผลลัพธ์</h5>
+          <p class="mb-0">ลองค้นหาด้วยคำอื่น</p>
+        </div>
+      </td>`;
+    tbody.appendChild(newRow);
+  } else if (visibleCount > 0 && noResultsRow) {
+    noResultsRow.remove();
+  }
 });
 </script>
+
+<!-- Footer -->
 <footer style="text-align: center; padding: 5px; font-size: 14px; color: #555; background-color: #f9f9f9;">
-    <img src="img/logo3.png" alt="โลโก้มหาวิทยาลัย" style="height: 40px; vertical-align: middle; margin-right: 10px;">
-    พัฒนาโดย นายชินกร ทองสอาด และ นางสาวซากีหนะต์ ปรังเจะ
-    | สาขาวิทยาการคอมพิวเตอร์ มหาวิทยาลัยราชภัฏสุราษฎร์ธานี
-    | © 2025
+  <img src="img/logo3.png" alt="โลโก้มหาวิทยาลัย" style="height: 40px; vertical-align: middle; margin-right: 10px;">
+  พัฒนาโดย นายชินกร ทองสอาด และ นางสาวซากีหนะต์ ปรังเจะ
+  | สาขาวิทยาการคอมพิวเตอร์ มหาวิทยาลัยราชภัฏสุราษฎร์ธานี
+  | © 2025
 </footer>
+
 </body>
 </html>

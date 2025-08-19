@@ -31,7 +31,7 @@ $sql = "SELECT m.*, i.item_number, i.model_name, i.brand,
         LEFT JOIN users u3 ON m.created_by = u3.user_id
         WHERE 1=1";
 
-$params = array();
+$params = [];
 
 if ($item_filter > 0) {
     $sql .= " AND m.item_id = ?";
@@ -64,12 +64,13 @@ $sql .= " ORDER BY m.movement_date DESC";
 // เตรียม statement
 $stmt = mysqli_prepare($link, $sql);
 if (!empty($params)) {
-    $types = str_repeat('s', count($params));
+    $types = str_repeat('s', count($params)); // ผูกเป็น string ได้ MySQL จะ cast ให้
     mysqli_stmt_bind_param($stmt, $types, ...$params);
 }
 mysqli_stmt_execute($stmt);
 $result = mysqli_stmt_get_result($stmt);
 
+// ดึงรายการสำหรับตัวกรอง (หากต้องใช้ในฟอร์ม)
 $items_result = mysqli_query($link, "SELECT item_id, item_number, model_name, brand FROM items WHERE item_number IS NOT NULL AND item_number != '' ORDER BY item_number");
 $users_result = mysqli_query($link, "SELECT user_id, full_name, department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY full_name");
 
@@ -122,11 +123,12 @@ function get_movement_type_badge($type) {
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <span class="navbar-brand mb-0 h1">ประวัติการเคลื่อนไหว</span>
-                <!-- ลบ user dropdown ออก -->
             </div>
         </nav>
+
         <!-- Sidebar (Desktop Only) และ Offcanvas (Mobile) -->
         <?php include 'sidebar.php'; ?>
+
         <!-- Main Content -->
         <div class="col-md-9 col-lg-10 px-0">
             <div class="main-content mt-4 mt-md-5">
@@ -138,87 +140,94 @@ function get_movement_type_badge($type) {
                         </div>
                     </div>
                 </div>
+
                 <div class="filter-card p-4">
                     <h5 class="mb-3"><i class="fas fa-filter me-2"></i>ตัวกรองข้อมูล</h5>
-                    <!-- ฟอร์มตัวกรอง (ย่อเพื่อความกระชับ) -->
+                    <!-- ฟอร์มตัวกรองของคุณ (คงเดิม/เพิ่มเติมได้) -->
                     <!-- ... -->
                 </div>
+
+                <!-- ตาราง: ทำสไตล์เลื่อนเหมือน users.php -->
                 <div class="card shadow-sm">
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-borderless table-hover align-middle">
-                                <thead class="table-dark">
-                  <tr>
-                    <th>วันที่</th>
-                    <th>ประเภท</th>
-                    <th>ครุภัณฑ์</th>
-                    <th>จำนวน</th>
-                    <th>จาก (ผู้ใช้/แผนก)</th>
-                    <th>ไปยัง (ผู้ใช้/แผนก)</th>
-                    <th>หมายเหตุ</th>
-                    <th>ผู้บันทึก (แผนก)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                <?php if (mysqli_num_rows($result) > 0): ?>
-                  <?php while ($row = mysqli_fetch_assoc($result)): ?>
-                    <tr>
-                      <td><?= thaidate('j M Y H:i', $row['movement_date']); ?></td>
-                      <td><?= get_movement_type_badge($row['movement_type']); ?></td>
-                      <td>
-                        <strong><?= htmlspecialchars($row['item_number']); ?></strong><br>
-                        <small class="text-muted">
-                          <?= htmlspecialchars(trim($row['model_name'] . ' - ' . $row['brand'], ' -')) ?>
-                        </small>
-                      </td>
-                      <td><?= $row['quantity']; ?></td>
-                      <td>
-                        <?php if ($row['from_location']): ?>
-                          <i class="fas fa-map-marker-alt text-danger"></i> <?= htmlspecialchars($row['from_location']); ?><br>
-                        <?php endif; ?>
-                        <?php if ($row['from_user_name']): ?>
-                          <i class="fas fa-user text-primary"></i> <strong><?= htmlspecialchars($row['from_user_name']); ?></strong>
-                          <?php if ($row['from_user_department']): ?>
-                            <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['from_user_department']); ?></small>
-                          <?php endif; ?>
-                        <?php endif; ?>
-                      </td>
-                      <td>
-                        <?php if ($row['to_location']): ?>
-                          <i class="fas fa-map-marker-alt text-success"></i> <?= htmlspecialchars($row['to_location']); ?><br>
-                        <?php endif; ?>
-                        <?php if ($row['to_user_name']): ?>
-                          <i class="fas fa-user text-success"></i> <strong><?= htmlspecialchars($row['to_user_name']); ?></strong>
-                          <?php if ($row['to_user_department']): ?>
-                            <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['to_user_department']); ?></small>
-                          <?php endif; ?>
-                        <?php endif; ?>
-                      </td>
-                      <td><?= $row['notes'] ? '<span class="text-muted">' . htmlspecialchars($row['notes']) . '</span>' : '<span class="text-muted">-</span>'; ?></td>
-                      <td class="user-block">
-                        <strong><?= htmlspecialchars($row['created_by_name']); ?></strong>
-                        <?php if ($row['created_by_department']): ?>
-                          <small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['created_by_department']); ?></small>
-                        <?php endif; ?>
-                      </td>
-                    </tr>
-                  <?php endwhile; ?>
-                <?php else: ?>
-                  <tr>
-                    <td colspan="8" class="text-center text-muted py-4">
-                      <i class="fas fa-inbox fa-3x mb-3"></i><br>ไม่พบข้อมูลการเคลื่อนไหว
-                    </td>
-                  </tr>
-                <?php endif; ?>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-</div>
+                    <div class="card-body p-0">
+                        <!-- เลื่อนเฉพาะตาราง -->
+                        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+                            <table class="table table-bordered table-hover align-middle mb-0">
+                                <thead class="sticky-top bg-white" style="z-index: 1020;">
+                                  <tr>
+                                    <th>วันที่</th>
+                                    <th>ประเภท</th>
+                                    <th>ครุภัณฑ์</th>
+                                    <th>จำนวน</th>
+                                    <th>จาก (ผู้ใช้/แผนก)</th>
+                                    <th>ไปยัง (ผู้ใช้/แผนก)</th>
+                                    <th>หมายเหตุ</th>
+                                    <th>ผู้บันทึก (แผนก)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                <?php if (mysqli_num_rows($result) > 0): ?>
+                                  <?php while ($row = mysqli_fetch_assoc($result)): ?>
+                                    <tr>
+                                      <td><?= thaidate('j M Y H:i', $row['movement_date']); ?></td>
+                                      <td><?= get_movement_type_badge($row['movement_type']); ?></td>
+                                      <td>
+                                        <strong><?= htmlspecialchars($row['item_number']); ?></strong><br>
+                                        <small class="text-muted">
+                                          <?= htmlspecialchars(trim($row['model_name'] . ' - ' . $row['brand'], ' -')) ?>
+                                        </small>
+                                      </td>
+                                      <td><?= (int)$row['quantity']; ?></td>
+                                      <td>
+                                        <?php if ($row['from_location']): ?>
+                                          <i class="fas fa-map-marker-alt text-danger"></i> <?= htmlspecialchars($row['from_location']); ?><br>
+                                        <?php endif; ?>
+                                        <?php if ($row['from_user_name']): ?>
+                                          <i class="fas fa-user text-primary"></i> <strong><?= htmlspecialchars($row['from_user_name']); ?></strong>
+                                          <?php if ($row['from_user_department']): ?>
+                                            <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['from_user_department']); ?></small>
+                                          <?php endif; ?>
+                                        <?php endif; ?>
+                                      </td>
+                                      <td>
+                                        <?php if ($row['to_location']): ?>
+                                          <i class="fas fa-map-marker-alt text-success"></i> <?= htmlspecialchars($row['to_location']); ?><br>
+                                        <?php endif; ?>
+                                        <?php if ($row['to_user_name']): ?>
+                                          <i class="fas fa-user text-success"></i> <strong><?= htmlspecialchars($row['to_user_name']); ?></strong>
+                                          <?php if ($row['to_user_department']): ?>
+                                            <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['to_user_department']); ?></small>
+                                          <?php endif; ?>
+                                        <?php endif; ?>
+                                      </td>
+                                      <td><?= $row['notes'] ? '<span class="text-muted">' . htmlspecialchars($row['notes']) . '</span>' : '<span class="text-muted">-</span>'; ?></td>
+                                      <td class="user-block">
+                                        <strong><?= htmlspecialchars($row['created_by_name']); ?></strong>
+                                        <?php if ($row['created_by_department']): ?>
+                                          <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['created_by_department']); ?></small>
+                                        <?php endif; ?>
+                                      </td>
+                                    </tr>
+                                  <?php endwhile; ?>
+                                <?php else: ?>
+                                  <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">
+                                      <i class="fas fa-inbox fa-3x mb-3"></i><br>ไม่พบข้อมูลการเคลื่อนไหว
+                                    </td>
+                                  </tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div><!-- /.table-responsive -->
+                    </div><!-- /.card-body -->
+                </div><!-- /.card -->
+            </div><!-- /.main-content -->
+        </div><!-- /.col -->
+    </div><!-- /.row -->
+</div><!-- /.container-fluid -->
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <footer style="text-align: center; padding: 5px; font-size: 14px; color: #555; background-color: #f9f9f9;">
   <img src="img/logo3.png" alt="โลโก้มหาวิทยาลัย" style="height: 40px; vertical-align: middle; margin-right: 10px;">
   พัฒนาโดย นายชินกร ทองสอาด และ นางสาวซากีหนะต์ ปรังเจะ | สาขาวิทยาการคอมพิวเตอร์ มหาวิทยาลัยราชภัฏสุราษฎร์ธานี | © 2025

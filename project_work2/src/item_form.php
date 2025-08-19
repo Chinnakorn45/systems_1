@@ -138,10 +138,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (!empty($serial_number) && !preg_match('/^[a-zA-Z0-9\-\_\.\s]+$/', $serial_number)) {
         $serial_number_err = "Serial Number ต้องประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมาย - _ . เท่านั้น";
     }
-    if (!empty($item_number) && !preg_match('/^[a-zA-Z0-9\-\_\.\s]+$/', $item_number)) {
-        $item_number_err = "เลขครุภัณฑ์ต้องประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมาย - _ . เท่านั้น";
-    }
-
+    if (!empty($item_number) && !preg_match('/^[\p{L}\p{N}\-_.\/\s]+$/u', $item_number)) {
+    $item_number_err = "เลขครุภัณฑ์ต้องเป็นตัวอักษร/ตัวเลข และเครื่องหมาย - _ . / ได้เท่านั้น";
+}
     // คำนวณราคารวมอีกครั้งเพื่อความถูกต้องใน DB
     $total_price = $total_quantity * $price_per_unit; 
 

@@ -83,7 +83,7 @@ $result = $stmt->get_result();
                 <!-- ตาราง -->
                 <div class="card shadow-sm">
                     <div class="card-body p-0">
-                        <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
+                        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
                             <table class="table table-bordered table-hover align-middle mb-0">
                                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                                     <tr>

@@ -52,79 +52,131 @@ $result = mysqli_query($link, $sql);
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <span class="navbar-brand mb-0 h1">วัสดุสำนักงาน</span>
-                <!-- ลบ user dropdown ออก -->
             </div>
         </nav>
-        <!-- Sidebar (Desktop Only) และ Offcanvas (Mobile) -->
+
+        <!-- Sidebar -->
         <?php include 'sidebar.php'; ?>
+
         <!-- Main Content -->
         <div class="col-md-9 col-lg-10 px-0">
             <div class="main-content position-relative mt-4 mt-md-5">
-                <!-- User Dropdown (Desktop Only) -->
-                <!-- ลบ user dropdown (desktop) ออก -->
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2 class="mb-0"><i class="fas fa-paperclip"></i> วัสดุสำนักงาน</h2>
-                    <?php if ($_SESSION["role"] === "admin"): ?>
-                    <a href="supply_form.php" class="btn btn-add"><i class="fas fa-plus"></i> เพิ่มวัสดุสำนักงาน</a>
-                    <?php endif; ?>
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
+                    <h2 class="mb-0"><i class="fas fa-paperclip me-2"></i>วัสดุสำนักงาน</h2>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="text" id="supplySearch" class="form-control" style="max-width:350px;" placeholder="ค้นหาวัสดุสำนักงาน...">
+                        <?php if ($_SESSION["role"] === "admin"): ?>
+                            <a href="supply_form.php" class="btn btn-add"><i class="fas fa-plus"></i> เพิ่มวัสดุสำนักงาน</a>
+                        <?php endif; ?>
+                    </div>
                 </div>
+
                 <div class="card shadow-sm">
-                    <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-bordered table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>ชื่อวัสดุ</th>
-                                <th>รายละเอียด</th>
-                                <th>หน่วยนับ</th>
-                                <th>จำนวนคงเหลือ</th>
-                                <th>สต็อกขั้นต่ำ</th>
-                                <th>จัดการ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php 
-                            $row_count = 0;
-                            while ($row = mysqli_fetch_assoc($result)): 
-                                $row_count++;
-                            ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($row['supply_name']); ?></td>
-                                <td><?php echo htmlspecialchars($row['description']); ?></td>
-                                <td><?php echo htmlspecialchars($row['unit']); ?></td>
-                                <td><?php echo $row['current_stock']; ?></td>
-                                <td><?php echo $row['min_stock_level']; ?></td>
-                                <td>
-                                    <?php if ($_SESSION["role"] === "admin"): ?>
-                                    <a href="supply_form.php?id=<?php echo $row['supply_id']; ?>" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
-                                    <a href="supplies.php?action=delete&id=<?php echo $row['supply_id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('ยืนยันการลบ?');"><i class="fas fa-trash"></i></a>
+                    <div class="card-body p-0">
+                        <!-- เลื่อนเฉพาะตาราง + thead sticky -->
+                        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+                            <table class="table table-bordered table-hover align-middle mb-0">
+                                <thead class="sticky-top bg-white" style="z-index: 1020;">
+                                    <tr>
+                                        <th>ชื่อวัสดุ</th>
+                                        <th>รายละเอียด</th>
+                                        <th>หน่วยนับ</th>
+                                        <th>จำนวนคงเหลือ</th>
+                                        <th>สต็อกขั้นต่ำ</th>
+                                        <th>จัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php 
+                                    $row_count = 0;
+                                    while ($row = mysqli_fetch_assoc($result)): 
+                                        $row_count++;
+                                    ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars($row['supply_name']); ?></td>
+                                        <td><?= htmlspecialchars($row['description']); ?></td>
+                                        <td><?= htmlspecialchars($row['unit']); ?></td>
+                                        <td><?= (int)$row['current_stock']; ?></td>
+                                        <td><?= (int)$row['min_stock_level']; ?></td>
+                                        <td>
+                                            <?php if ($_SESSION["role"] === "admin"): ?>
+                                                <a href="supply_form.php?id=<?= $row['supply_id']; ?>" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
+                                                <a href="supplies.php?action=delete&id=<?= $row['supply_id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('ยืนยันการลบ?');"><i class="fas fa-trash"></i></a>
+                                            <?php else: ?>
+                                                <button class="btn btn-sm btn-secondary" disabled title="เฉพาะผู้ดูแลระบบเท่านั้น"><i class="fas fa-ban"></i></button>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <?php endwhile; ?>
+                                    
+                                    <?php if($row_count == 0): ?>
+                                        <tr>
+                                            <td colspan="6" class="text-center py-4">
+                                                <div class="text-muted">
+                                                    <i class="fas fa-boxes fa-3x mb-3"></i>
+                                                    <h5>ไม่พบข้อมูลวัสดุสำนักงาน</h5>
+                                                    <p class="mb-0">ยังไม่มีรายการวัสดุสำนักงานในระบบ</p>
+                                                </div>
+                                            </td>
+                                        </tr>
                                     <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endwhile; ?>
-                            
-                            <?php if($row_count == 0): ?>
-                                <tr>
-                                    <td colspan="6" class="text-center py-4">
-                                        <div class="text-muted">
-                                            <i class="fas fa-boxes fa-3x mb-3"></i>
-                                            <h5>ไม่พบข้อมูลวัสดุสำนักงาน</h5>
-                                            <p class="mb-0">ยังไม่มีรายการวัสดุสำนักงานในระบบ</p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                </tbody>
+                            </table>
+                        </div><!-- /.table-responsive -->
+                    </div><!-- /.card-body -->
+                </div><!-- /.card -->
+
             </div>
         </div>
     </div>
 </div>
-    </div>
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ค้นหาแบบเรียลไทม์ในตารางวัสดุสำนักงาน
+document.getElementById('supplySearch').addEventListener('input', function() {
+    const filter = this.value.toLowerCase();
+    const rows = document.querySelectorAll('table tbody tr');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const show = text.includes(filter);
+        row.style.display = show ? '' : 'none';
+        if (show) visibleCount++;
+    });
+
+    // แสดง/ซ่อนแถว "ไม่พบผลลัพธ์"
+    let noResultsRow = document.querySelector('.no-results-row');
+    if (visibleCount === 0 && !noResultsRow) {
+        const tbody = document.querySelector('table tbody');
+        const newRow = document.createElement('tr');
+        newRow.className = 'no-results-row';
+        newRow.innerHTML = `
+            <td colspan="6" class="text-center py-4">
+                <div class="text-muted">
+                    <i class="fas fa-search fa-3x mb-3"></i>
+                    <h5>ไม่พบผลลัพธ์</h5>
+                    <p class="mb-0">ลองค้นหาด้วยคำอื่น</p>
+                </div>
+            </td>`;
+        tbody.appendChild(newRow);
+    } else if (visibleCount > 0 && noResultsRow) {
+        noResultsRow.remove();
+    }
+});
+
+// คลิกหัวตารางให้เลื่อนกลับบนสุดของกรอบตาราง
+document.querySelectorAll('table thead th').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.title = 'คลิกเพื่อเลื่อนขึ้นด้านบน';
+    th.addEventListener('click', function() {
+        const container = document.querySelector('.table-responsive');
+        container.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+});
+</script>
+
 <footer style="text-align: center; padding: 5px; font-size: 14px; color: #555; background-color: #f9f9f9;">
     <img src="img/logo3.png" alt="โลโก้มหาวิทยาลัย" style="height: 40px; vertical-align: middle; margin-right: 10px;">
     พัฒนาโดย นายชินกร ทองสอาด และ นางสาวซากีหนะต์ ปรังเจะ
@@ -133,3 +185,4 @@ $result = mysqli_query($link, $sql);
 </footer>
 </body>
 </html>
+
