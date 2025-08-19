@@ -1,14 +1,19 @@
 <?php
-// transfer_assets.php (เวอร์ชันแก้ให้ดึงเฉพาะ full_name ของ staff/procurement)
+// transfer_assets.php — full_name ทุกจุด + แก้ collation + ตารางเลื่อนแบบ 80vh + ค้นหา
 require_once 'config.php';
 if (!isset($_SESSION)) session_start();
 
-// อนุญาตเฉพาะแอดมิน
+/* Charset/Collation */
+mysqli_set_charset($link, 'utf8mb4');
+mysqli_query($link, "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+mysqli_query($link, "SET collation_connection = 'utf8mb4_unicode_ci'");
+
+/* Auth */
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
     header('Location: login.php'); exit;
 }
 
-// โอนสิทธิ (POST)
+/* POST: โอนสิทธิ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $item_id      = (int)($_POST['item_id'] ?? 0);
     $new_owner_id = (int)($_POST['new_owner_id'] ?? 0);
@@ -19,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: transfer_assets.php'); exit;
     }
 
-    // ป้องกันโอนสิทธิให้ผู้ที่ไม่ใช่ staff/procurement
+    // อนุญาตเฉพาะ staff/procurement
     $new_role = null;
     $stmtRole = mysqli_prepare($link, "SELECT role FROM users WHERE user_id = ?");
     mysqli_stmt_bind_param($stmtRole, "i", $new_owner_id);
@@ -55,12 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_execute($stmtUpd);
         mysqli_stmt_close($stmtUpd);
 
-        // บันทึกประวัติ
+        // บันทึกประวัติ (เก็บเป็น user_id)
         $stmtHis = mysqli_prepare($link, "INSERT INTO equipment_history
             (item_id, action_type, old_value, new_value, changed_by, remarks)
             VALUES (?, 'transfer_ownership', ?, ?, ?, ?)");
-        $old_str = is_null($old_owner_int) ? null : (string)$old_owner_int;
-        $new_str = (string)$new_owner_id;
+        $old_str    = is_null($old_owner_int) ? null : (string)$old_owner_int;
+        $new_str    = (string)$new_owner_id;
         $changed_by = (int)$_SESSION['user_id'];
         mysqli_stmt_bind_param($stmtHis, "issis", $item_id, $old_str, $new_str, $changed_by, $remarks);
         mysqli_stmt_execute($stmtHis);
@@ -75,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: transfer_assets.php'); exit;
 }
 
-// รายการครุภัณฑ์ + เจ้าของปัจจุบัน (ชื่อจาก full_name)
+/* Data for form */
 $sqlItems = "
     SELECT i.item_id, i.item_number, i.model_name, i.brand,
            i.owner_user_id,
@@ -87,7 +92,6 @@ $sqlItems = "
 ";
 $rsItems = mysqli_query($link, $sqlItems);
 
-// รายชื่อผู้รับสิทธิใหม่: เฉพาะ staff/procurement และใช้ full_name เสมอ
 $sqlUsers = "
     SELECT user_id, full_name, department
     FROM users
@@ -96,17 +100,25 @@ $sqlUsers = "
 ";
 $rsUsers = mysqli_query($link, $sqlUsers);
 
-// ประวัติการโอนสิทธิ
+/* History: map -> full_name; fix collation compare */
 $sqlHis = "
-    SELECT h.history_id, h.item_id, h.action_type, h.old_value, h.new_value, h.changed_by, h.change_date, h.remarks,
-           i.item_number, i.model_name,
-           uo.full_name AS old_owner,
-           un.full_name AS new_owner,
-           uc.full_name AS changed_by_name
+    SELECT
+      h.history_id, h.item_id, h.action_type, h.old_value, h.new_value,
+      h.changed_by, h.change_date, h.remarks,
+      i.item_number, i.model_name,
+      COALESCE(uo_id.full_name, uo_name.full_name) AS old_owner,
+      COALESCE(un_id.full_name, un_name.full_name) AS new_owner,
+      uc.full_name AS changed_by_name
     FROM equipment_history h
     LEFT JOIN items i ON i.item_id = h.item_id
-    LEFT JOIN users uo ON uo.user_id = CAST(h.old_value AS UNSIGNED)
-    LEFT JOIN users un ON un.user_id = CAST(h.new_value AS UNSIGNED)
+    LEFT JOIN users uo_id
+           ON (h.old_value REGEXP '^[0-9]+$' AND uo_id.user_id = CAST(h.old_value AS UNSIGNED))
+    LEFT JOIN users uo_name
+           ON (uo_name.full_name COLLATE utf8mb4_unicode_ci = h.old_value COLLATE utf8mb4_unicode_ci)
+    LEFT JOIN users un_id
+           ON (h.new_value REGEXP '^[0-9]+$' AND un_id.user_id = CAST(h.new_value AS UNSIGNED))
+    LEFT JOIN users un_name
+           ON (un_name.full_name COLLATE utf8mb4_unicode_ci = h.new_value COLLATE utf8mb4_unicode_ci)
     LEFT JOIN users uc ON uc.user_id = h.changed_by
     WHERE h.action_type = 'transfer_ownership'
     ORDER BY h.change_date DESC, h.history_id DESC
@@ -159,10 +171,13 @@ $rsHis = mysqli_query($link, $sqlHis);
           <?php unset($_SESSION['error_message']); ?>
         <?php endif; ?>
 
+        <!-- ส่วนหัว + ช่องค้นหาแบบหน้านั้น -->
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
           <h2 class="mb-0"><i class="fas fa-user-exchange me-2"></i> โอนสิทธิครุภัณฑ์</h2>
+          <input type="text" id="historySearch" class="form-control mb-2 mb-md-0" style="max-width:350px;" placeholder="ค้นหาประวัติ (เลขครุภัณฑ์/ชื่อ/หมายเหตุ)...">
         </div>
 
+        <!-- ฟอร์มโอนสิทธิ -->
         <div class="card shadow-sm mb-4">
           <div class="card-body">
             <form method="post" class="row g-3">
@@ -175,7 +190,8 @@ $rsHis = mysqli_query($link, $sqlHis);
                       $label = $it['item_number'];
                       if (!empty($it['model_name'])) $label .= " - ".$it['model_name'];
                       if (!empty($it['brand'])) $label .= " (".$it['brand'].")";
-                      $ownerLabel = $it['owner_name'] ? ($it['owner_name'].(!empty($it['owner_dept']) ? " / ".$it['owner_dept'] : "")) : "ยังไม่มีผู้ถือสิทธิ";
+                      $ownerLabel = trim((string)$it['owner_name']);
+                      if ($ownerLabel === '') $ownerLabel = "ยังไม่มีผู้ถือสิทธิ";
                     ?>
                     <option
                       value="<?= (int)$it['item_id'] ?>"
@@ -196,10 +212,8 @@ $rsHis = mysqli_query($link, $sqlHis);
                   <?php if ($rsUsers): while ($u = mysqli_fetch_assoc($rsUsers)):
                         $display = trim((string)$u['full_name']);
                         if ($display === '') $display = 'ไม่ระบุชื่อ';
-                        $dept = trim((string)$u['department']);
-                        $text = $display.($dept !== '' ? " / ".$dept : "");
                   ?>
-                    <option value="<?= (int)$u['user_id'] ?>"><?= htmlspecialchars($text) ?></option>
+                    <option value="<?= (int)$u['user_id'] ?>"><?= htmlspecialchars($display) ?></option>
                   <?php endwhile; endif; ?>
                 </select>
                 <div class="form-text text-muted">ระบบจะแสดงเฉพาะผู้ใช้บทบาทเจ้าหน้าที่และเจ้าหน้าที่พัสดุ</div>
@@ -217,10 +231,11 @@ $rsHis = mysqli_query($link, $sqlHis);
           </div>
         </div>
 
+        <!-- ตารางประวัติ: เลื่อนเฉพาะตาราง เหมือนหน้า users -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
-              <table class="table table-bordered table-hover align-middle mb-0">
+            <div class="table-responsive" style="max-height: 50vh; overflow-y: auto;">
+              <table id="historyTable" class="table table-bordered table-hover align-middle mb-0">
                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                   <tr>
                     <th>วันที่</th>
@@ -238,8 +253,8 @@ $rsHis = mysqli_query($link, $sqlHis);
                       <td><?= thaidate('j M Y H:i', $h['change_date']) ?></td>
                       <td><?= htmlspecialchars($h['item_number'] ?? '-') ?></td>
                       <td><?= htmlspecialchars($h['model_name'] ?? '-') ?></td>
-                      <td><?= htmlspecialchars($h['old_owner'] ?? '-') ?></td>
-                      <td><?= htmlspecialchars($h['new_owner'] ?? '-') ?></td>
+                      <td><?= htmlspecialchars($h['old_owner'] ?: ($h['old_value'] ?: '-')) ?></td>
+                      <td><?= htmlspecialchars($h['new_owner'] ?: ($h['new_value'] ?: '-')) ?></td>
                       <td><?= htmlspecialchars($h['changed_by_name'] ?? '-') ?></td>
                       <td><?= $h['remarks'] ? htmlspecialchars($h['remarks']) : '-' ?></td>
                     </tr>
@@ -275,7 +290,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const curName = opt.getAttribute('data-owner-name') || 'ยังไม่มีผู้ถือสิทธิ';
     ownerText.textContent = curName;
 
-    Array.from(newOwner.options).forEach(o => o.disabled = false);
+    Array.from(newOwner.options).forEach(o => { o.disabled = false; });
     if (curId && Number(curId) > 0) {
       Array.from(newOwner.options).forEach(o => {
         if (o.value && Number(o.value) === Number(curId)) {
@@ -287,6 +302,18 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   itemSel.addEventListener('change', updateOwnerInfo);
   updateOwnerInfo();
+
+  // ค้นหาประวัติแบบหน้านั้น
+  const searchInput = document.getElementById('historySearch');
+  const rows = () => document.querySelectorAll('#historyTable tbody tr');
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      const q = this.value.toLowerCase();
+      rows().forEach(tr => {
+        tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+  }
 });
 </script>
 

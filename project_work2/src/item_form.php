@@ -24,9 +24,18 @@ while ($row = mysqli_fetch_assoc($model_result)) {
     $models[] = $row;
 }
 
+// ดึงยี่ห้อ
+$brands = [];
+$brand_result = mysqli_query($link, "SELECT * FROM brands ORDER BY brand_name");
+while ($br = mysqli_fetch_assoc($brand_result)) {
+    $brands[] = $br;
+}
+
 // กำหนดตัวแปรเริ่มต้น
 $item_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
-$item_number = $serial_number = $description = $note = $category_id = $total_quantity = $location = $purchase_date = $budget_year = $price_per_unit = $total_price = $image = '';
+$item_number = $serial_number = $description = $note = $category_id = $total_quantity = $location = $purchase_date = $budget_year = $price_per_unit = $total_price = '';
+$image = ''; // backward-compat single image field
+$images = []; // array of image rows from item_images
 $item_number_err = $serial_number_err = $brand_err = $category_id_err = $total_quantity_err = $budget_year_err = $price_per_unit_err = $image_err = $model_id_err = ''; // เพิ่ม model_id_err
 $is_edit = false;
 $model_id = '';
@@ -62,6 +71,18 @@ if ($item_id > 0) {
             $image = isset($row['image']) ? $row['image'] : '';
             $note = isset($row['note']) ? $row['note'] : '';
             $model_id = isset($row['model_id']) ? $row['model_id'] : '';
+            // load additional images from item_images (if table exists)
+            $images = [];
+            $sql_imgs = "SELECT image_id, image_path, is_primary, sort_order, uploaded_at FROM item_images WHERE item_id = ? ORDER BY sort_order, uploaded_at";
+            if ($stmt_imgs = @mysqli_prepare($link, $sql_imgs)) {
+                mysqli_stmt_bind_param($stmt_imgs, "i", $item_id);
+                mysqli_stmt_execute($stmt_imgs);
+                $res_imgs = mysqli_stmt_get_result($stmt_imgs);
+                while ($imgRow = mysqli_fetch_assoc($res_imgs)) {
+                    $images[] = $imgRow;
+                }
+                mysqli_stmt_close($stmt_imgs);
+            }
         } else {
             // ถ้าไม่พบ item_id ที่ระบุ ให้ redirect หรือแสดงข้อผิดพลาด
             echo "<script>alert('ไม่พบข้อมูลครุภัณฑ์ที่ต้องการแก้ไข'); window.location='items.php';</script>";
@@ -108,7 +129,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
     }
-    $brand = $brand_from_model; // ใช้ brand_name ที่ดึงมาจาก model_id เป็นค่า 'brand' ที่จะบันทึกลง DB
+    // ถ้ามีการกรอกยี่ห้อด้วยตัวเอง ให้ใช้ค่านั้นเป็นค่า brand
+    $brand = isset($_POST['brand']) && trim($_POST['brand']) !== '' ? trim($_POST['brand']) : $brand_from_model;
 
     $description = trim($_POST['description']);
     $note = trim($_POST['note']);
@@ -219,32 +241,51 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-    // อัปโหลดไฟล์รูป
-    if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
-        $ext = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
-        $allowed = ['jpg','jpeg','png','gif'];
-        if (in_array($ext, $allowed)) {
-            $newname = 'uploads/item_' . time() . '_' . rand(1000,9999) . '.' . $ext;
-            // ตรวจสอบและสร้างโฟลเดอร์ uploads ถ้ายังไม่มี
-            if (!is_dir('uploads')) {
-                mkdir('uploads', 0777, true);
-            }
-            if (move_uploaded_file($_FILES['image']['tmp_name'], $newname)) {
-                // ถ้ามีการอัปโหลดรูปใหม่ และมีรูปเก่าอยู่ ให้ลบรูปเก่า
-                if ($is_edit && !empty($_POST['old_image']) && file_exists($_POST['old_image'])) {
-                    unlink($_POST['old_image']);
+    // ลบรูปที่ผู้ใช้เลือกในฟอร์ม (remove_images[])
+    if ($is_edit && isset($_POST['remove_images']) && is_array($_POST['remove_images'])) {
+        $toRemove = array_map('intval', $_POST['remove_images']);
+        if (!empty($toRemove)) {
+            $in = implode(',', $toRemove);
+            // fetch paths
+            $q = "SELECT image_id, image_path FROM item_images WHERE image_id IN ($in) AND item_id = " . intval($item_id);
+            $res = mysqli_query($link, $q);
+            while ($r = mysqli_fetch_assoc($res)) {
+                if (!empty($r['image_path']) && file_exists($r['image_path'])) {
+                    @unlink($r['image_path']);
                 }
-                $image = $newname;
-            } else {
-                $image_err = 'อัปโหลดรูปไม่สำเร็จ';
             }
-        } else {
-            $image_err = 'อนุญาตเฉพาะไฟล์ jpg, jpeg, png, gif';
+            mysqli_query($link, "DELETE FROM item_images WHERE image_id IN ($in) AND item_id = " . intval($item_id));
+            // if removed image was the items.image, clear it so later code can reset primary
+            if (!empty($image) && in_array($image, $toRemove)) {
+                mysqli_query($link, "UPDATE items SET image = '' WHERE item_id = " . intval($item_id));
+                $image = '';
+            }
         }
-    } elseif (isset($_POST['old_image'])) {
+    }
+
+    // อัปโหลดไฟล์รูป (รองรับหลายรูป: input name="images[]")
+    $uploaded_images = []; // will hold new image paths
+    if (!empty($_FILES['images']) && is_array($_FILES['images']['name'])) {
+        $allowed = ['jpg','jpeg','png','gif'];
+        // Ensure uploads dir exists
+        if (!is_dir('uploads')) {
+            mkdir('uploads', 0777, true);
+        }
+        foreach ($_FILES['images']['name'] as $idx => $origName) {
+            if (empty($origName)) continue;
+            $error = $_FILES['images']['error'][$idx];
+            if ($error !== UPLOAD_ERR_OK) continue;
+            $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+            if (!in_array($ext, $allowed)) continue;
+            $newname = 'uploads/item_' . time() . '_' . rand(1000,9999) . '.' . $ext;
+            if (move_uploaded_file($_FILES['images']['tmp_name'][$idx], $newname)) {
+                $uploaded_images[] = $newname;
+            }
+        }
+    }
+    // keep backward compatibility: if old single-image field sent, use it
+    if (isset($_POST['old_image']) && empty($uploaded_images)) {
         $image = $_POST['old_image'];
-    } else {
-        $image = ''; // ถ้าไม่มีรูปเก่าและไม่ได้อัปโหลดใหม่ ให้เป็นค่าว่าง
     }
 
     // หากไม่มี error
@@ -256,6 +297,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 mysqli_stmt_bind_param($stmt, "ssssssiissssddi", $model_name, $item_number, $serial_number, $brand, $description, $note, $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year, $price_per_unit, $total_price, $item_id);
                 if (mysqli_stmt_execute($stmt)) {
                     // Success
+                    // if new uploaded images exist, insert them into item_images
+                    if (!empty($uploaded_images)) {
+                        $ins_sql = "INSERT INTO item_images (item_id, image_path, is_primary, sort_order) VALUES (?, ?, 0, 0)";
+                        if ($ins_stmt = @mysqli_prepare($link, $ins_sql)) {
+                            foreach ($uploaded_images as $imgPath) {
+                                mysqli_stmt_bind_param($ins_stmt, "is", $item_id, $imgPath);
+                                mysqli_stmt_execute($ins_stmt);
+                            }
+                            mysqli_stmt_close($ins_stmt);
+                        }
+                        // if items.image is empty or we want to update primary, update items.image to first uploaded
+                        if (empty($image) && !empty($uploaded_images)) {
+                            $first = $uploaded_images[0];
+                            mysqli_query($link, "UPDATE items SET image = '" . mysqli_real_escape_string($link, $first) . "' WHERE item_id = " . intval($item_id));
+                        }
+                    }
                     echo "<script>window.location = 'item_form.php?id=" . $item_id . "&success=1';</script>";
                 } else {
                     // Error
@@ -272,7 +329,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param($stmt, "ssssssissssssd", $model_name, $item_number, $serial_number, $brand, $description, $note, $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year, $price_per_unit, $total_price);
                 if (mysqli_stmt_execute($stmt)) {
-                    // Success
+                    // Success - get inserted id
+                    $new_item_id = mysqli_insert_id($link);
+                    // insert uploaded images into item_images
+                    if (!empty($uploaded_images)) {
+                        $ins_sql = "INSERT INTO item_images (item_id, image_path, is_primary, sort_order) VALUES (?, ?, 0, 0)";
+                        if ($ins_stmt = @mysqli_prepare($link, $ins_sql)) {
+                            foreach ($uploaded_images as $imgPath) {
+                                mysqli_stmt_bind_param($ins_stmt, "is", $new_item_id, $imgPath);
+                                mysqli_stmt_execute($ins_stmt);
+                            }
+                            mysqli_stmt_close($ins_stmt);
+                        }
+                        // update items.image to first uploaded for backward compatibility
+                        $first = $uploaded_images[0];
+                        mysqli_query($link, "UPDATE items SET image = '" . mysqli_real_escape_string($link, $first) . "' WHERE item_id = " . intval($new_item_id));
+                    }
                     echo "<script>window.location = 'item_form.php?success=1';</script>";
                 } else {
                     // Error
@@ -444,12 +516,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="mb-3">
                 <label for="model_id" class="form-label">ชื่อรุ่น <span class="text-danger">*</span></label>
                 <div class="input-group">
-                    <select class="form-select <?php echo !empty($model_id_err) ? 'is-invalid' : ''; ?>" id="model_id" name="model_id" required onchange="updateBrand()">
+                    <div class="me-2" style="flex:1;">
+                        <input type="text" id="modelSearch" class="form-control mb-1" placeholder="ค้นหาชื่อรุ่น..." oninput="filterSelectOptions('modelSearch','model_id')">
+                        <select class="form-select <?php echo !empty($model_id_err) ? 'is-invalid' : ''; ?>" id="model_id" name="model_id" required onchange="updateBrand()">
                         <option value="">-- เลือกรุ่น --</option>
                         <?php foreach ($models as $m): ?>
                             <option value="<?php echo $m['model_id']; ?>" data-brand="<?php echo htmlspecialchars($m['brand_name']); ?>" <?php if ($model_id == $m['model_id']) echo 'selected'; ?>><?php echo htmlspecialchars($m['model_name']) . (isset($m['brand_name']) && $m['brand_name'] ? ' (' . htmlspecialchars($m['brand_name']) . ')' : ''); ?></option>
                         <?php endforeach; ?>
-                    </select>
+                        </select>
+                    </div>
                     <button type="button" class="btn btn-outline-primary" onclick="openModelModal()"><i class="fas fa-plus me-1"></i> จัดการ</button>
                 </div>
                 <div class="invalid-feedback"><?php echo $model_id_err; ?></div>
@@ -457,7 +532,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="mb-3">
                 <label for="brand_name" class="form-label">ยี่ห้อ</label>
                 <div class="input-group">
-                    <input type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand_display" value="<?php echo htmlspecialchars($brand_name_display); ?>" readonly>
+                    <input list="brandListD" type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="พิมพ์เพื่อค้นหาหรือเลือกจากรายการ">
+                    <datalist id="brandListD">
+                        <?php foreach ($brands as $b): ?>
+                            <option value="<?php echo htmlspecialchars($b['brand_name']); ?>"></option>
+                        <?php endforeach; ?>
+                    </datalist>
                     <button type="button" class="btn btn-outline-primary" onclick="openBrandModal()"><i class="fas fa-plus me-1"></i> จัดการ</button>
                 </div>
                 <div class="invalid-feedback"><?php echo $brand_err; ?></div>
@@ -469,12 +549,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="mb-3">
                 <label for="category_id" class="form-label">หมวดหมู่ <span class="text-danger">*</span></label>
                 <div class="input-group">
-                    <select class="form-select <?php echo !empty($category_id_err) ? 'is-invalid' : ''; ?>" id="category_id" name="category_id" required>
+                    <div class="me-2" style="flex:1;">
+                        <input type="text" id="categorySearch" class="form-control mb-1" placeholder="ค้นหาหมวดหมู่..." oninput="filterSelectOptions('categorySearch','category_id')">
+                        <select class="form-select <?php echo !empty($category_id_err) ? 'is-invalid' : ''; ?>" id="category_id" name="category_id" required>
                         <option value="">-- เลือกหมวดหมู่ --</option>
                         <?php foreach ($categories as $cat): ?>
                             <option value="<?php echo $cat['category_id']; ?>" <?php if ($category_id == $cat['category_id']) echo 'selected'; ?>><?php echo htmlspecialchars($cat['category_name']); ?></option>
                         <?php endforeach; ?>
-                    </select>
+                        </select>
+                    </div>
                     <button type="button" class="btn btn-outline-primary" onclick="openCategoryModal()"><i class="fas fa-plus me-1"></i> จัดการ</button>
                 </div>
                 <div class="invalid-feedback"><?php echo $category_id_err; ?></div>
@@ -513,12 +596,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <input type="date" class="form-control" id="purchase_date" name="purchase_date" value="<?php echo htmlspecialchars($purchase_date); ?>">
             </div>
             <div class="mb-3">
-                <label for="image" class="form-label">รูปภาพ</label>
-                <input type="file" class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>" id="image" name="image" accept="image/*">
-                <?php if ($image): ?>
-                    <div class="mt-2"><img src="<?php echo htmlspecialchars($image); ?>" alt="รูปภาพ" style="max-width:150px; height: auto;"></div>
-                    <input type="hidden" name="old_image" value="<?php echo htmlspecialchars($image); ?>">
-                <?php endif; ?>
+                <label for="images" class="form-label">รูปภาพ (หลายไฟล์)</label>
+                <input type="file" class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>" id="images" name="images[]" accept="image/*" multiple>
+                <small class="form-text text-muted">สามารถอัปโหลดได้หลายรูป (jpg, png, gif). รูปแรกจะถูกตั้งเป็นรูปหลักสำหรับความเข้ากันได้ย้อนหลัง.</small>
+                <div class="mt-2" id="existingImages">
+                    <?php if (!empty($images)): ?>
+                        <?php foreach ($images as $img): ?>
+                            <div class="d-inline-block me-2 mb-2 text-center" style="max-width:120px;">
+                                <img src="<?php echo htmlspecialchars($img['image_path']); ?>" alt="img" style="max-width:110px; height:auto; display:block; border:1px solid #ddd; padding:4px;">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="remove_images[]" value="<?php echo intval($img['image_id']); ?>" id="rm<?php echo intval($img['image_id']); ?>">
+                                    <label class="form-check-label small" for="rm<?php echo intval($img['image_id']); ?>">ลบ</label>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        <input type="hidden" name="old_image" value="<?php echo htmlspecialchars($image); ?>">
+                    <?php elseif ($image): ?>
+                        <div class="mt-2"><img src="<?php echo htmlspecialchars($image); ?>" alt="รูปภาพ" style="max-width:150px; height: auto;"></div>
+                        <input type="hidden" name="old_image" value="<?php echo htmlspecialchars($image); ?>">
+                    <?php endif; ?>
+                </div>
                 <div class="invalid-feedback"><?php echo $image_err; ?></div>
             </div>
             <div class="mb-3">
@@ -663,6 +760,45 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <script>
+    function filterSelectOptions(searchInputId, selectId) {
+        var term = document.getElementById(searchInputId).value.toLowerCase();
+        var sel = document.getElementById(selectId);
+        var firstMatchIndex = -1;
+        for (var i = 0; i < sel.options.length; i++) {
+            var txt = sel.options[i].text.toLowerCase();
+            var visible = txt.indexOf(term) !== -1;
+            // hide on desktop filtering; mobile native pickers may ignore display:none
+            sel.options[i].style.display = visible ? '' : 'none';
+            if (visible && firstMatchIndex === -1) firstMatchIndex = i;
+        }
+        // Auto-select first match to help mobile users who cannot see filtered options
+        if (firstMatchIndex !== -1) {
+            sel.selectedIndex = firstMatchIndex;
+        } else {
+            // reset to empty option if no match
+            for (var j = 0; j < sel.options.length; j++) {
+                if (sel.options[j].value === '') { sel.selectedIndex = j; break; }
+            }
+        }
+        // If model select changed, update dependent fields
+        try { if (selectId === 'model_id') updateBrand(); } catch(e){}
+    }
+    // On mobile, many browsers show native select pickers and ignore option display.
+    // Provide an extra handler to pick the first matching option on blur/change.
+    document.addEventListener('DOMContentLoaded', function(){
+        var ms = document.getElementById('modelSearch');
+        var cs = document.getElementById('categorySearch');
+        if (ms) ms.addEventListener('blur', function(){ filterSelectOptions('modelSearch','model_id'); });
+        if (ms) ms.addEventListener('change', function(){ filterSelectOptions('modelSearch','model_id'); });
+        if (cs) cs.addEventListener('blur', function(){ filterSelectOptions('categorySearch','category_id'); });
+        if (cs) cs.addEventListener('change', function(){ filterSelectOptions('categorySearch','category_id'); });
+    });
+    document.addEventListener('DOMContentLoaded', function(){
+        // ensure brand_display/updateBrand runs
+        updateBrand();
+    });
+    </script>
     <script>
         // คำนวณราคารวมอัตโนมัติ
         function calculateTotalPrice() {
@@ -1249,6 +1385,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     console.error('Error refreshing model select:', error);
                 });
         }
+
+        // Lock brand field because it's populated automatically from the selected model
+// This makes the input readonly, adds a small helper note, and hides any UI that would open the brand management modal.
+// The brand value is still submitted as it's readonly (not disabled).
+document.addEventListener('DOMContentLoaded', function(){
+    try {
+        var brandInput = document.getElementById('brand');
+        if (brandInput) {
+            brandInput.setAttribute('readonly', 'readonly');
+            brandInput.style.backgroundColor = '#f8f9fa';
+            brandInput.style.cursor = 'not-allowed';
+            // add helper note if not present
+            if (!brandInput.nextElementSibling || !brandInput.nextElementSibling.classList || !brandInput.nextElementSibling.classList.contains('brand-lock-note')) {
+                var note = document.createElement('div');
+                note.className = 'form-text text-muted brand-lock-note';
+                note.innerText = 'ยี่ห้อถูกกำหนดอัตโนมัติ (ล็อคไว้ ไม่สามารถแก้ไขได้)';
+                brandInput.parentNode.insertBefore(note, brandInput.nextSibling);
+            }
+        }
+        // hide any elements that open the brand modal (by data-bs-target or known helper classes)
+        document.querySelectorAll('[data-bs-target="#brandModal"], .open-brand-modal, .btn-brand-modal').forEach(function(el){
+            el.style.display = 'none';
+        });
+    } catch(e){ console && console.warn && console.warn('brand lock init error', e); }
+    // ensure brand_display/updateBrand runs
+    updateBrand();
+});
+        // Also hide any brand-search controls to prevent users from searching/changing brand directly
+document.addEventListener('DOMContentLoaded', function(){
+    try {
+        // hide search input(s) for brand if present
+        var bs = document.getElementById('brandSearch');
+        if (bs) bs.style.display = 'none';
+        document.querySelectorAll('.brand-search, [data-search-for="brand"], input[name="brandSearch"]').forEach(function(el){
+            el.style.display = 'none';
+        });
+        // additionally remove any event listeners that might try to filter brand select (best-effort: set pointer-events none)
+        var brandSelect = document.getElementById('brand');
+        if (brandSelect) brandSelect.style.pointerEvents = 'none';
+    } catch(e) { console && console.warn && console.warn('hide brand search error', e); }
+});
     </script>
 </body>
 </html>

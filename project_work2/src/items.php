@@ -97,7 +97,10 @@ $sql = "SELECT i.*, c.category_name,
             WHEN EXISTS (SELECT 1 FROM equipment_movements em WHERE em.item_id = i.item_id AND em.movement_type IN ('maintenance', 'disposal')) THEN 'maintenance'
             ELSE 'available'
         END as current_status
-        FROM items i 
+  ,
+  -- aggregate image list from item_images (image_id::image_path separated by '||')
+  (SELECT GROUP_CONCAT(CONCAT(image_id, '::', image_path) ORDER BY is_primary DESC, sort_order, uploaded_at SEPARATOR '||') FROM item_images ii WHERE ii.item_id = i.item_id) AS images_concat
+  FROM items i 
         LEFT JOIN categories c ON i.category_id = c.category_id
         $where";
 $result = mysqli_query($link, $sql);
@@ -113,6 +116,14 @@ $result = mysqli_query($link, $sql);
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="sidebar.css">
     <link rel="stylesheet" href="common-ui.css">
+    <style>
+    /* Ensure footer doesn't cover the table on small screens */
+    @media (max-width: 767px) {
+      .main-content { padding-bottom: 88px; }
+      .table-responsive { padding-bottom: 8px; }
+      footer { position: relative; z-index: 100; }
+    }
+    </style>
 </head>
 <body>
 
@@ -203,9 +214,29 @@ $result = mysqli_query($link, $sql);
                     <td><?= isset($row['price_per_unit']) ? number_format($row['price_per_unit'], 2) : '-' ?></td>
                     <td><?= isset($row['total_price']) ? number_format($row['total_price'], 2) : '-' ?></td>
                     <td>
-                      <?php if (!empty($row['image'])): ?>
-                        <img src="<?= htmlspecialchars($row['image']) ?>" alt="รูป" style="max-width:60px;max-height:60px;object-fit:cover;">
-                      <?php endif; ?>
+                      <?php
+            // show only the first image as thumbnail, but attach all images to data-images for gallery
+            $img_list = [];
+            if (!empty($row['images_concat'])) {
+              $parts = explode('||', $row['images_concat']);
+              foreach ($parts as $part) {
+                $p = explode('::', $part, 2);
+                if (count($p) == 2) {
+                  $img_list[] = $p[1];
+                }
+              }
+            }
+            if (empty($img_list) && !empty($row['image'])) {
+              $img_list[] = $row['image'];
+            }
+            if (!empty($img_list)) {
+              $first = $img_list[0];
+              $json = htmlspecialchars(json_encode(array_values($img_list)), ENT_QUOTES, 'UTF-8');
+              echo '<a href="' . htmlspecialchars($first) . '" class="img-preview-link" data-images="' . $json . '" onclick="openGallery(event,this)">'
+                 . '<img src="' . htmlspecialchars($first) . '" alt="img" style="max-width:60px;max-height:60px;object-fit:cover;">'
+                 . '</a>';
+            }
+                      ?>
                     </td>
                     <td><?= htmlspecialchars($row['note'] ?? '') ?></td>
                     <td><?= htmlspecialchars($row['location']) ?></td>
@@ -290,6 +321,72 @@ document.getElementById('itemSearch').addEventListener('input', function() {
     noResultsRow.remove();
   }
 });
+</script>
+
+<!-- Gallery modal -->
+<div class="modal fade" id="imageGalleryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content bg-transparent border-0">
+      <div class="modal-body p-0 text-center position-relative">
+        <button type="button" class="btn btn-sm btn-light position-absolute top-50 start-0 translate-middle-y ms-2" id="galleryPrev">&larr;</button>
+        <img id="galleryImg" src="" alt="Preview" style="max-width:100%; max-height:80vh; height:auto; border-radius:6px;">
+        <button type="button" class="btn btn-sm btn-light position-absolute top-50 end-0 translate-middle-y me-2" id="galleryNext">&rarr;</button>
+      </div>
+      <div class="modal-footer border-0 justify-content-between">
+        <div class="text-white"><small id="galleryCounter"></small></div>
+        <div>
+          <a id="galleryOpenNewTab" href="#" target="_blank" class="btn btn-sm btn-outline-light">Open in new tab</a>
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var galleryImages = [];
+var galleryIndex = 0;
+function openGallery(e, anchor) {
+  // allow ctrl/meta/middle click to open in new tab
+  if (e.ctrlKey || e.metaKey || e.button === 1) return;
+  e.preventDefault();
+  try {
+    var json = anchor.getAttribute('data-images');
+    galleryImages = JSON.parse(json || '[]');
+  } catch (err) {
+    galleryImages = [];
+  }
+  if (!galleryImages || galleryImages.length === 0) return;
+  galleryIndex = 0;
+  showGalleryImage(galleryIndex);
+  var modal = new bootstrap.Modal(document.getElementById('imageGalleryModal'));
+  modal.show();
+}
+
+function showGalleryImage(idx) {
+  var img = document.getElementById('galleryImg');
+  var counter = document.getElementById('galleryCounter');
+  var openLink = document.getElementById('galleryOpenNewTab');
+  idx = (idx + galleryImages.length) % galleryImages.length;
+  galleryIndex = idx;
+  img.src = galleryImages[galleryIndex];
+  openLink.href = galleryImages[galleryIndex];
+  counter.textContent = (galleryIndex + 1) + ' / ' + galleryImages.length;
+}
+
+document.getElementById('galleryPrev').addEventListener('click', function(){ showGalleryImage(galleryIndex - 1); });
+document.getElementById('galleryNext').addEventListener('click', function(){ showGalleryImage(galleryIndex + 1); });
+
+// keyboard navigation
+document.addEventListener('keydown', function(e){
+  var modalEl = document.getElementById('imageGalleryModal');
+  if (!modalEl.classList.contains('show')) return;
+  if (e.key === 'ArrowLeft') showGalleryImage(galleryIndex - 1);
+  if (e.key === 'ArrowRight') showGalleryImage(galleryIndex + 1);
+});
+
+// clear img on hide
+document.getElementById('imageGalleryModal').addEventListener('hidden.bs.modal', function(){ document.getElementById('galleryImg').src = ''; galleryImages = []; });
 </script>
 
 <!-- Footer -->

@@ -4,12 +4,13 @@ $host = 'localhost'; $user = 'root'; $pass = ''; $db = 'borrowing_db';
 $conn = new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) die('Connection failed: '.$conn->connect_error);
 $conn->set_charset('utf8mb4');
+$conn->query("SET collation_connection = 'utf8mb4_unicode_ci'");
 
 // ====== Helpers ======
 function table_exists(mysqli $c, $t){ $t=$c->real_escape_string($t); $r=$c->query("SHOW TABLES LIKE '$t'"); return $r&&$r->num_rows>0; }
 function col_exists(mysqli $c, $t, $col){ $t=$c->real_escape_string($t); $col=$c->real_escape_string($col); $r=$c->query("SHOW COLUMNS FROM `$t` LIKE '$col'"); return $r&&$r->num_rows>0; }
 function status_th_repair($s){
-  $m=['pending'=>'รอรับงาน','received'=>'รับงานแล้ว','assigned'=>'มอบหมายช่าง','in_progress'=>'กำลังซ่อม','completed'=>'ซ่อมเสร็จ','cancelled'=>'ยกเลิก']; 
+  $m=['pending'=>'รอรับงาน','received'=>'รับงานแล้ว','assigned'=>'มอบหมายช่าง','in_progress'=>'กำลังซ่อม','completed'=>'ซ่อมเสร็จ','cancelled'=>'ยกเลิก'];
   return $m[$s]??$s;
 }
 function badge_class_repair($s){ return match($s){ 'pending'=>'warn','received','assigned','in_progress'=>'info','completed'=>'ok','cancelled'=>'warn', default=>'info', }; }
@@ -18,10 +19,13 @@ function badge_class_repair($s){ return match($s){ 'pending'=>'warn','received',
 $sn = trim($_GET['sn'] ?? '');
 $item = $borrow = null;
 
+// ====== ตรวจคอลัมน์ serial_number ของ items (ใช้ซ้ำหลายที่) ======
+$itemsExists = table_exists($conn,'items');
+$hasSerialCol = $itemsExists && col_exists($conn,'items','serial_number');
+
 // ====== ค้นหา item ======
-if ($sn !== '' && table_exists($conn,'items')) {
-  $hasSerial = col_exists($conn,'items','serial_number');
-  if ($hasSerial) {
+if ($sn !== '' && $itemsExists) {
+  if ($hasSerialCol) {
     $q="SELECT * FROM items WHERE item_number=? OR serial_number=? LIMIT 1";
     $st=$conn->prepare($q); $st->bind_param('ss',$sn,$sn);
   } else {
@@ -94,6 +98,54 @@ if ($sn !== '' && table_exists($connRepair,'repairs')) {
   }
 }
 
+// ====== ประวัติการโอนสิทธิ ======
+$transfers=[];
+if (table_exists($conn,'equipment_history')) {
+  if ($item && isset($item['item_id'])) {
+    $sql = "
+      SELECT h.history_id, h.item_id, h.action_type, h.old_value, h.new_value,
+             h.changed_by, h.change_date, h.remarks,
+             COALESCE(uo_id.full_name, uo_name.full_name) AS old_owner,
+             COALESCE(un_id.full_name, un_name.full_name) AS new_owner,
+             uc.full_name AS changed_by_name
+      FROM equipment_history h
+      LEFT JOIN users uo_id ON (h.old_value REGEXP '^[0-9]+$' AND uo_id.user_id = CAST(h.old_value AS UNSIGNED))
+      LEFT JOIN users uo_name ON (uo_name.full_name COLLATE utf8mb4_unicode_ci = h.old_value COLLATE utf8mb4_unicode_ci)
+      LEFT JOIN users un_id ON (h.new_value REGEXP '^[0-9]+$' AND un_id.user_id = CAST(h.new_value AS UNSIGNED))
+      LEFT JOIN users un_name ON (un_name.full_name COLLATE utf8mb4_unicode_ci = h.new_value COLLATE utf8mb4_unicode_ci)
+      LEFT JOIN users uc ON uc.user_id = h.changed_by
+      WHERE h.action_type = 'transfer_ownership' AND h.item_id = ?
+      ORDER BY h.change_date DESC, h.history_id DESC
+      LIMIT 50";
+    $st=$conn->prepare($sql); $st->bind_param('i',$item['item_id']);
+  } elseif ($sn !== '' && $itemsExists) {
+    $extra = $hasSerialCol ? "OR i.serial_number=?" : "";
+    $sql = "
+      SELECT h.history_id, h.item_id, h.action_type, h.old_value, h.new_value,
+             h.changed_by, h.change_date, h.remarks,
+             COALESCE(uo_id.full_name, uo_name.full_name) AS old_owner,
+             COALESCE(un_id.full_name, un_name.full_name) AS new_owner,
+             uc.full_name AS changed_by_name
+      FROM equipment_history h
+      JOIN items i ON i.item_id = h.item_id
+      LEFT JOIN users uo_id ON (h.old_value REGEXP '^[0-9]+$' AND uo_id.user_id = CAST(h.old_value AS UNSIGNED))
+      LEFT JOIN users uo_name ON (uo_name.full_name COLLATE utf8mb4_unicode_ci = h.old_value COLLATE utf8mb4_unicode_ci)
+      LEFT JOIN users un_id ON (h.new_value REGEXP '^[0-9]+$' AND un_id.user_id = CAST(h.new_value AS UNSIGNED))
+      LEFT JOIN users un_name ON (un_name.full_name COLLATE utf8mb4_unicode_ci = h.new_value COLLATE utf8mb4_unicode_ci)
+      LEFT JOIN users uc ON uc.user_id = h.changed_by
+      WHERE h.action_type = 'transfer_ownership' AND (i.item_number=? $extra)
+      ORDER BY h.change_date DESC, h.history_id DESC
+      LIMIT 50";
+    if ($hasSerialCol) { $st=$conn->prepare($sql); $st->bind_param('ss',$sn,$sn); }
+    else { $st=$conn->prepare($sql); $st->bind_param('s',$sn); }
+  }
+  if (isset($st)) {
+    $st->execute(); $r=$st->get_result();
+    while($r && $row=$r->fetch_assoc()) $transfers[]=$row;
+    $st->close();
+  }
+}
+
 // ====== สรุปตำแหน่งแสดงผล ======
 $locationText='-';
 if ($item){
@@ -106,6 +158,60 @@ if ($item){
 if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
   $locationText=htmlspecialchars($repairs[0]['location_name']);
 }
+
+// ====== รูปภาพของอุปกรณ์ (จาก item_images หรือ fallback ไปยัง items.image) ======
+$item_images = [];
+// compute project base URL (e.g. /systems_1) to serve uploads placed in project root
+$scriptBase = rtrim(dirname($_SERVER['SCRIPT_NAME']), '\\/');
+$projectBaseUrl = dirname($scriptBase);
+if ($item) {
+  if (table_exists($conn,'item_images')) {
+    if (isset($item['item_id'])) {
+      $q = "SELECT image_path FROM item_images WHERE item_id=? ORDER BY sort_order ASC";
+      $st = $conn->prepare($q);
+      $st->bind_param('i',$item['item_id']);
+    } else {
+      $q = "SELECT ii.image_path FROM item_images ii JOIN items i ON ii.item_id=i.item_id WHERE i.item_number=? ORDER BY ii.sort_order ASC";
+      $st = $conn->prepare($q);
+      $st->bind_param('s',$item['item_number']);
+    }
+    if (isset($st)) {
+      $st->execute(); $r=$st->get_result();
+      while($r && $rw=$r->fetch_assoc()){
+        $raw = $rw['image_path'];
+        $docPath = rtrim($_SERVER['DOCUMENT_ROOT'],'\\/').'/'.ltrim($raw,'/');
+        if (file_exists($docPath)) {
+          // serve from web root
+          $item_images[] = '/'.ltrim($raw,'/');
+        } elseif (file_exists(__DIR__.'/../'.ltrim($raw,'/'))) {
+          // file exists in project root uploads (one level above SCH). Serve using project base URL (/systems_1/uploads/...)
+          $item_images[] = rtrim($projectBaseUrl,'/').'/' . ltrim($raw,'/');
+        } elseif (file_exists(__DIR__.'/../project_work2/src/'.ltrim($raw,'/'))) {
+          // file exists in project_work2/src/uploads; serve via that path
+          $item_images[] = rtrim($projectBaseUrl,'/').'/project_work2/src/'.ltrim($raw,'/');
+        } else {
+          // leave as-is (could be external URL)
+          $item_images[] = $raw;
+        }
+      }
+      $st->close();
+    }
+  }
+  // fallback to legacy items.image column
+    if (empty($item_images) && !empty($item['image'])) {
+    $raw = $item['image'];
+    $docPath = rtrim($_SERVER['DOCUMENT_ROOT'],'\/').'/'.ltrim($raw,'/');
+    if (file_exists($docPath)) {
+      $item_images[] = '/'.ltrim($raw,'/');
+    } elseif (file_exists(__DIR__.'/../'.ltrim($raw,'/'))) {
+      $item_images[] = rtrim($projectBaseUrl,'/').'/' . ltrim($raw,'/');
+    } elseif (file_exists(__DIR__.'/../project_work2/src/'.ltrim($raw,'/'))) {
+      $item_images[] = rtrim($projectBaseUrl,'/').'/project_work2/src/'.ltrim($raw,'/');
+    } else {
+      $item_images[] = $raw;
+    }
+  }
+}
 ?>
 <!doctype html>
 <html lang="th">
@@ -113,8 +219,7 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
   <meta charset="utf-8">
   <title>ค้นหาอุปกรณ์ | ระบบงานพัสดุ-ครุภัณฑ์</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     body{font-family:system-ui,-apple-system,'Sarabun',Segoe UI,Roboto,Arial;background:#f7fafc;margin:0}
     .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
@@ -132,9 +237,27 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
     .pill.info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
     table{width:100%;border-collapse:collapse}
-    th,td{border:1px solid #e6ecf2;padding:8px;text-align:left}
+    th,td{border:1px solid #e6ecf2;padding:8px;text-align:left;vertical-align:top}
+    thead th{background:#f8fafc}
     .back{display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:#1a3e6d;margin-bottom:8px}
-    .scanner-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:1000}
+
+    /* ==== ป๊อปอัปทั้งหน้า ==== */
+    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none}
+    .backdrop.show{display:block}
+    .wrap.modalized{
+      position:fixed;z-index:1001;inset:4vh 2vw auto 2vw;
+      max-width:60vw;width:96vw;max-height:60vh;overflow:auto;
+      background:#fff;border:1px solid #e6ecf2;border-radius:14px;
+      box-shadow:0 20px 60px rgba(0,0,0,.25);padding:16px
+    }
+    .modal-close{
+      position:sticky;top:-8px;float:right;display:inline-flex;align-items:center;gap:6px;
+      padding:8px 10px;margin:-8px -4px 8px 0;background:#ef4444;color:#fff;border:0;border-radius:8px;cursor:pointer
+    }
+    body.lock-scroll{overflow:hidden}
+
+    /* ==== ป๊อปอัปสแกน (เดิม) ==== */
+    .scanner-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:2000}
     .scanner-modal.show{display:flex}
     .scanner-box{background:#000;border-radius:12px;padding:12px;width:min(92vw,560px)}
     .scanner-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
@@ -145,6 +268,9 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
 </head>
 <body>
   <div class="wrap">
+    <!-- ปุ่มปิดป๊อปอัปทั้งหน้า (กดแล้วออกจากหน้านี้) -->
+    <button type="button" class="modal-close"><i class="fa fa-times"></i> ปิด</button>
+
     <a class="back" href="./"><i class="fa fa-arrow-left"></i> กลับหน้าหลัก</a>
 
     <div class="card">
@@ -170,7 +296,7 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
         (คุณยังสามารถอัปโหลดรูปบาร์โค้ดแทนได้)
       </div>
 
-      <?php if ($sn !== '' && !$item && !count($repairs)): ?>
+      <?php if ($sn !== '' && !$item && !count($repairs) && !count($transfers)): ?>
         <div class="muted" style="margin-top:10px"><i class="fa fa-info-circle"></i> ไม่พบข้อมูลที่ตรงกับ “<?= htmlspecialchars($sn) ?>”</div>
       <?php endif; ?>
     </div>
@@ -180,6 +306,17 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
       <div class="title"><i class="fa fa-box-open"></i> ข้อมูลอุปกรณ์</div>
       <div class="grid">
         <div><strong>เลขครุภัณฑ์</strong><br><?= htmlspecialchars($item['item_number'] ?? '-') ?></div>
+        <div>
+          <strong>รูปภาพ</strong><br>
+          <?php if (!empty($item_images)): ?>
+            <?php $first = htmlspecialchars($item_images[0]); $allJson = htmlspecialchars(json_encode($item_images, JSON_UNESCAPED_SLASHES)); ?>
+            <a href="#" onclick="openGallery(event,this)" data-images='<?= $allJson ?>' style="display:inline-block;border:1px solid #eee;padding:4px;border-radius:8px">
+              <img src="<?= $first ?>" alt="thumbnail" style="width:120px;height:90px;object-fit:cover;border-radius:6px;display:block">
+            </a>
+          <?php else: ?>
+            <span class="muted">-</span>
+          <?php endif; ?>
+        </div>
         <?php if (isset($item['serial_number'])): ?>
         <div><strong>Serial</strong><br><?= htmlspecialchars($item['serial_number'] ?? '-') ?></div>
         <?php endif; ?>
@@ -193,22 +330,102 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
       </div>
       <div style="margin-top:10px"><strong>สถานะครุภัณฑ์:</strong>
         <?php
-        $pill = '<span class="pill ok">ว่าง (Available)</span>';
-        if ($borrow){
-          $s=$borrow['status'];
-          if ($s==='borrowed' || $s==='return_pending'){
-            $who = htmlspecialchars($borrow['full_name'] ?? 'ไม่ทราบผู้ยืม');
-            $due = $borrow['due_date'] ? date('d/m/Y', strtotime($borrow['due_date'])) : '-';
-            $pill = '<span class="pill warn">กำลังยืม</span> โดย '.$who.' (กำหนดคืน '.$due.')';
-          } elseif ($s==='approved'){
-            $pill = '<span class="pill info">รอรับของ/อยู่ระหว่างดำเนินการ</span>';
+          $pill = '<span class="pill ok">ว่าง (Available)</span>';
+          if ($borrow){
+            $s=$borrow['status'];
+            if ($s==='borrowed' || $s==='return_pending'){
+              $who = htmlspecialchars($borrow['full_name'] ?? 'ไม่ทราบผู้ยืม');
+              $due = $borrow['due_date'] ? date('d/m/Y', strtotime($borrow['due_date'])) : '-';
+              $pill = '<span class="pill warn">กำลังยืม</span> โดย '.$who.' (กำหนดคืน '.$due.')';
+            } elseif ($s==='approved'){
+              $pill = '<span class="pill info">รอรับของ/อยู่ระหว่างดำเนินการ</span>';
+            }
           }
-        }
-        echo $pill;
+          echo $pill;
         ?>
       </div>
     </div>
+    <?php if (!empty($_GET['debug_images'])): ?>
+    <div class="card">
+      <div class="title"><i class="fa fa-image"></i> Debug: resolved image paths</div>
+      <div>
+        <?php
+          echo "<div style=\"font-size:13px;margin-bottom:6px;\"><strong>raw from DB / items.image:</strong></div>";
+          if (table_exists($conn,'item_images')){
+            // show DB rows
+            if (isset($item['item_id'])){
+              $q2 = "SELECT image_path FROM item_images WHERE item_id=? ORDER BY sort_order ASC";
+              $s2 = $conn->prepare($q2); $s2->bind_param('i',$item['item_id']); $s2->execute(); $res2=$s2->get_result();
+            } else {
+              $q2 = "SELECT ii.image_path FROM item_images ii JOIN items i ON ii.item_id=i.item_id WHERE i.item_number=? ORDER BY ii.sort_order ASC";
+              $s2 = $conn->prepare($q2); $s2->bind_param('s',$item['item_number']); $s2->execute(); $res2=$s2->get_result();
+            }
+            echo '<ul style="margin:6px 0 10px 18px">';
+            while($res2 && $rw=$res2->fetch_assoc()) echo '<li>'.htmlspecialchars($rw['image_path']??'<empty>').'</li>';
+            echo '</ul>';
+            if (isset($s2)) $s2->close();
+          }
+          echo "<div style=\"font-size:13px;margin-top:8px;margin-bottom:6px\"><strong>resolved for browser (click to open):</strong></div>";
+        ?>
+        <div style="background:#f3f6fb;padding:10px;border-radius:8px;border:1px solid #e6ecf2;font-size:13px">
+          <?php if (empty($item_images)): ?>
+            <div class="muted">(no resolved images)</div>
+          <?php else: ?>
+            <?php foreach($item_images as $u):
+              $existsLabel = '<span style="color:#c62828">file not found on server</span>';
+              $fsPath = null;
+              // try to find a server-side file for relative URLs
+              if (strpos($u,'://') === false) {
+                $trim = ltrim($u,'/');
+                $path1 = rtrim($_SERVER['DOCUMENT_ROOT'],'\\/').'/'.$trim;
+                $path2 = __DIR__.'/../'.$trim;
+                if (file_exists($path1)) { $existsLabel = '<span style="color:green">exists: '.htmlspecialchars($path1).'</span>'; $fsPath=$path1; }
+                elseif (file_exists($path2)) { $existsLabel = '<span style="color:green">exists: '.htmlspecialchars($path2).'</span>'; $fsPath=$path2; }
+              }
+            ?>
+              <div style="margin-bottom:6px">
+                <a href="<?= htmlspecialchars($u) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($u) ?></a>
+                &nbsp; <?= $existsLabel ?>
+              </div>
+            <?php endforeach; endif; ?>
+        </div>
+      </div>
+    </div>
     <?php endif; ?>
+    <?php endif; ?>
+
+    <!-- ประวัติการโอนสิทธิ -->
+    <div class="card">
+      <div class="title"><i class="fa fa-right-left"></i> ประวัติการโอนสิทธิครุภัณฑ์</div>
+      <?php if (!table_exists($conn,'equipment_history')): ?>
+        <div class="muted">ยังไม่มีตาราง <code>equipment_history</code> ในฐานข้อมูลนี้</div>
+      <?php elseif (!$transfers): ?>
+        <div class="muted">ไม่พบประวัติการโอนสิทธิสำหรับรายการนี้</div>
+      <?php else: ?>
+      <table>
+        <thead>
+          <tr>
+            <th>วันที่</th>
+            <th>จาก (เดิม)</th>
+            <th>เป็น (ใหม่)</th>
+            <th>ผู้ดำเนินการ</th>
+            <th>หมายเหตุ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach($transfers as $t): ?>
+          <tr>
+            <td><?= htmlspecialchars($t['change_date'] ? date('d/m/Y H:i', strtotime($t['change_date'])) : '-') ?></td>
+            <td><?= htmlspecialchars($t['old_owner'] ?: ($t['old_value'] ?: '-')) ?></td>
+            <td><?= htmlspecialchars($t['new_owner'] ?: ($t['new_value'] ?: '-')) ?></td>
+            <td><?= htmlspecialchars($t['changed_by_name'] ?? '-') ?></td>
+            <td><?= htmlspecialchars($t['remarks'] ?? '-') ?></td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+      <?php endif; ?>
+    </div>
 
     <div class="card">
       <div class="title"><i class="fa fa-screwdriver-wrench"></i> ประวัติการซ่อม</div>
@@ -253,19 +470,38 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
       </table>
       <?php endif; ?>
     </div>
+  </div><!-- /.wrap -->
+
+  <!-- Gallery modal -->
+  <div id="imageGalleryBackdrop" class="backdrop" style="z-index:1500"></div>
+  <div id="imageGalleryModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;z-index:1501">
+    <div style="max-width:90vw;max-height:90vh;margin:auto;background:#fff;padding:12px;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.4);position:relative">
+      <button id="galleryClose" class="btn secondary" style="position:absolute;right:12px;top:12px"><i class="fa fa-times"></i></button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button id="galleryPrev" class="btn">◀</button>
+        <div style="flex:1;text-align:center">
+          <img id="galleryImg" src="" alt="" style="max-width:100%;max-height:70vh;border-radius:6px">
+          <div id="galleryCounter" class="muted" style="margin-top:8px;font-size:13px"></div>
+        </div>
+        <button id="galleryNext" class="btn">▶</button>
+      </div>
+    </div>
   </div>
+
+  <!-- Backdrop ป๊อปอัปทั้งหน้า -->
+  <div class="backdrop" id="pageBackdrop"></div>
 
   <!-- ZXing (ใช้ทั้งสแกนกล้องและถอดรหัสจากรูป) -->
   <script src="https://unpkg.com/@zxing/library@0.21.2"></script>
   <script>
   (function(){
-    const btnScan    = document.getElementById('btnScan');
-    const btnUpload  = document.getElementById('btnUpload');
-    const fileInput  = document.getElementById('fileBarcode');
-    const inputSN    = document.getElementById('sn');
-    const banner     = document.getElementById('camBanner');
+    const btnScan   = document.getElementById('btnScan');
+    const btnUpload = document.getElementById('btnUpload');
+    const fileInput = document.getElementById('fileBarcode');
+    const inputSN   = document.getElementById('sn');
+    const banner    = document.getElementById('camBanner');
 
-    // modal สแกนกล้อง
+    // ====== Modal สแกน (เดิม) ======
     const modal=document.createElement('div'); modal.className='scanner-modal'; modal.id='scannerModal';
     modal.innerHTML = `
       <div class="scanner-box">
@@ -286,7 +522,6 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
 
     const hasMedia = !!(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function');
 
-    // ถ้า origin ไม่ปลอดภัยหรือไม่มี getUserMedia → ปิดปุ่มสแกน + แสดงแบนเนอร์
     if (!isSecureOrigin || !hasMedia) {
       btnScan.disabled = true;
       btnScan.title = 'ต้องเปิดผ่าน https หรือ localhost เท่านั้น';
@@ -302,7 +537,6 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
       }
       if (running) return; running=true; modal.classList.add('show');
 
-      // Native BarcodeDetector ก่อน
       if ('BarcodeDetector' in window) {
         try{
           detector = new BarcodeDetector({formats:['code_128','qr_code','ean_13','ean_8','code_39','code_93','upc_a','upc_e']});
@@ -353,7 +587,6 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
       modal.classList.remove('show'); running=false;
     }
 
-    // ถอดรหัสจาก "รูป" ด้วย ZXing
     async function decodeFromFile(file){
       if (!file) return;
       const reader = new FileReader();
@@ -364,8 +597,6 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
           const res = await codeReader.decodeFromImageUrl(dataUrl);
           if (res && res.text){
             inputSN.value = res.text;
-            // auto submit ก็ได้ ถ้าต้องการ:
-            // document.querySelector('form.search-box').submit();
             alert('อ่านบาร์โค้ดสำเร็จ: ' + res.text);
           } else {
             alert('อ่านบาร์โค้ดจากรูปไม่สำเร็จ');
@@ -377,18 +608,81 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
       reader.readAsDataURL(file);
     }
 
-    // Events
+    // Events (สแกน)
     btnScan.addEventListener('click', e=>{ e.preventDefault(); startScan(); });
     btnClose.addEventListener('click', e=>{ e.preventDefault(); stopScan(); });
     modal.addEventListener('click', e=>{ if (e.target===modal) stopScan(); });
     window.addEventListener('keydown', e=>{ if (e.key==='Escape' && modal.classList.contains('show')) stopScan(); });
-
     btnUpload.addEventListener('click', e => { e.preventDefault(); fileInput.click(); });
     fileInput.addEventListener('change', e => { const f=e.target.files && e.target.files[0]; decodeFromFile(f); });
+
+    // ====== ป๊อปอัปทั้งหน้า: เด้งอัตโนมัติ + ปุ่มปิด = ออกจากหน้านี้ทันที ======
+    const pageBackdrop = document.getElementById('pageBackdrop');
+    const wrap = document.querySelector('.wrap');
+    const closePageBtn = document.querySelector('.modal-close');
+
+    function openPageModal(){
+      document.body.classList.add('lock-scroll');
+      wrap.classList.add('modalized');
+      pageBackdrop.classList.add('show');
+    }
+
+    // ปิด = ออกจากหน้านี้ทันที (พยายามย้อนกลับก่อน ถ้าไม่มีให้ไปหน้าแรก ./)
+    function exitPage(){
+      try {
+        if (document.referrer && window.history.length > 1) { window.history.back(); return; }
+      } catch(e){}
+      window.location.href = './';
+    }
+
+    // เด้งป๊อปอัปทั้งหน้าเมื่อเข้าหน้านี้
+    window.addEventListener('DOMContentLoaded', openPageModal);
+
+    // ปิดได้เฉพาะปุ่มปิด/ปุ่ม Esc เท่านั้น (คลิกพื้นหลังไม่ปิด)
+    closePageBtn.addEventListener('click', exitPage);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitPage(); });
+    pageBackdrop.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+  })();
+  </script>
+  <script>
+  // Gallery functions (separate from scanner IIFE)
+  (function(){
+    const galleryModal = document.getElementById('imageGalleryModal');
+    const galleryBackdrop = document.getElementById('imageGalleryBackdrop');
+    const galleryImg = document.getElementById('galleryImg');
+    const galleryCounter = document.getElementById('galleryCounter');
+    const btnPrev = document.getElementById('galleryPrev');
+    const btnNext = document.getElementById('galleryNext');
+    const btnCloseG = document.getElementById('galleryClose');
+    let currentImages = [];
+    let currentIndex = 0;
+
+    window.openGallery = function(e, anchor){
+      e.preventDefault();
+      try { currentImages = JSON.parse(anchor.getAttribute('data-images') || '[]'); } catch(err){ currentImages = []; }
+      if (!currentImages || !currentImages.length) return;
+      currentIndex = 0; showImage();
+      galleryBackdrop.classList.add('show');
+      galleryModal.style.display = 'flex';
+      document.body.classList.add('lock-scroll');
+    };
+
+    function showImage(){
+      const url = currentImages[currentIndex];
+      galleryImg.src = url;
+      galleryCounter.textContent = (currentIndex+1) + ' / ' + currentImages.length;
+    }
+
+    btnPrev.addEventListener('click', ()=>{ if (!currentImages.length) return; currentIndex = (currentIndex-1+currentImages.length)%currentImages.length; showImage(); });
+    btnNext.addEventListener('click', ()=>{ if (!currentImages.length) return; currentIndex = (currentIndex+1)%currentImages.length; showImage(); });
+    btnCloseG.addEventListener('click', closeGallery);
+    galleryBackdrop.addEventListener('click', closeGallery);
+    function closeGallery(){ galleryModal.style.display='none'; galleryBackdrop.classList.remove('show'); document.body.classList.remove('lock-scroll'); }
+    window.addEventListener('keydown', (e)=>{ if (galleryModal.style.display==='flex'){ if (e.key==='ArrowLeft') btnPrev.click(); if (e.key==='ArrowRight') btnNext.click(); if (e.key==='Escape') closeGallery(); } });
   })();
   </script>
 </body>
 </html>
 <?php
-$conn->close();
 if (isset($connRepair) && $connRepair instanceof mysqli && $connRepair !== $conn) $connRepair->close();
+$conn->close();
