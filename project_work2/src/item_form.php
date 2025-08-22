@@ -532,7 +532,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="mb-3">
                 <label for="brand_name" class="form-label">ยี่ห้อ</label>
                 <div class="input-group">
-                    <input list="brandListD" type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="พิมพ์เพื่อค้นหาหรือเลือกจากรายการ">
+                    <input list="brandListD" type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="กำหนดจากรุ่นอัตโนมัติ" readonly>
                     <datalist id="brandListD">
                         <?php foreach ($brands as $b): ?>
                             <option value="<?php echo htmlspecialchars($b['brand_name']); ?>"></option>
@@ -786,13 +786,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
     // On mobile, many browsers show native select pickers and ignore option display.
     // Provide an extra handler to pick the first matching option on blur/change.
-    document.addEventListener('DOMContentLoaded', function(){
-        var ms = document.getElementById('modelSearch');
-        var cs = document.getElementById('categorySearch');
-        if (ms) ms.addEventListener('blur', function(){ filterSelectOptions('modelSearch','model_id'); });
-        if (ms) ms.addEventListener('change', function(){ filterSelectOptions('modelSearch','model_id'); });
-        if (cs) cs.addEventListener('blur', function(){ filterSelectOptions('categorySearch','category_id'); });
-        if (cs) cs.addEventListener('change', function(){ filterSelectOptions('categorySearch','category_id'); });
+    // ล็อกช่องยี่ห้อให้พิมพ์ไม่ได้ และไม่สามารถเปิดรายการ datalist ได้
+    document.addEventListener('DOMContentLoaded', function () {
+        var brandInput = document.getElementById('brand_name');
+        if (!brandInput) return;
+
+        // กันพิมพ์ + กันเปิดรายการ
+        brandInput.readOnly = true;                  // กันพิมพ์ แต่ยัง submit ได้
+        brandInput.removeAttribute('list');          // ไม่ให้เปิด datalist
+        brandInput.style.background = '#e9ecef';     // โทนสีแบบ disabled
+        brandInput.style.cursor = 'not-allowed';
+        brandInput.style.pointerEvents = 'none';     // กันคลิก/โฟกัสจากเมาส์บนบางเบราว์เซอร์
     });
     document.addEventListener('DOMContentLoaded', function(){
         // ensure brand_display/updateBrand runs
@@ -1386,45 +1390,64 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 });
         }
 
-        // Lock brand field because it's populated automatically from the selected model
-// This makes the input readonly, adds a small helper note, and hides any UI that would open the brand management modal.
-// The brand value is still submitted as it's readonly (not disabled).
+        // Force-lock brand visually and for form submission: disable visible input but keep a hidden input named 'brand' so value posts.
 document.addEventListener('DOMContentLoaded', function(){
     try {
-        var brandInput = document.getElementById('brand');
-        if (brandInput) {
-            brandInput.setAttribute('readonly', 'readonly');
-            brandInput.style.backgroundColor = '#f8f9fa';
-            brandInput.style.cursor = 'not-allowed';
-            // add helper note if not present
-            if (!brandInput.nextElementSibling || !brandInput.nextElementSibling.classList || !brandInput.nextElementSibling.classList.contains('brand-lock-note')) {
-                var note = document.createElement('div');
-                note.className = 'form-text text-muted brand-lock-note';
-                note.innerText = 'ยี่ห้อถูกกำหนดอัตโนมัติ (ล็อคไว้ ไม่สามารถแก้ไขได้)';
-                brandInput.parentNode.insertBefore(note, brandInput.nextSibling);
-            }
-        }
-        // hide any elements that open the brand modal (by data-bs-target or known helper classes)
-        document.querySelectorAll('[data-bs-target="#brandModal"], .open-brand-modal, .btn-brand-modal').forEach(function(el){
-            el.style.display = 'none';
-        });
-    } catch(e){ console && console.warn && console.warn('brand lock init error', e); }
-    // ensure brand_display/updateBrand runs
-    updateBrand();
-});
-        // Also hide any brand-search controls to prevent users from searching/changing brand directly
-document.addEventListener('DOMContentLoaded', function(){
-    try {
-        // hide search input(s) for brand if present
+        // hide any brand search box(s)
         var bs = document.getElementById('brandSearch');
-        if (bs) bs.style.display = 'none';
+        if (bs) {
+            bs.style.display = 'none';
+            bs.setAttribute('aria-hidden','true');
+            bs.tabIndex = -1;
+        }
         document.querySelectorAll('.brand-search, [data-search-for="brand"], input[name="brandSearch"]').forEach(function(el){
             el.style.display = 'none';
+            el.setAttribute('aria-hidden','true');
+            try{ el.tabIndex = -1; }catch(e){}
         });
-        // additionally remove any event listeners that might try to filter brand select (best-effort: set pointer-events none)
-        var brandSelect = document.getElementById('brand');
-        if (brandSelect) brandSelect.style.pointerEvents = 'none';
-    } catch(e) { console && console.warn && console.warn('hide brand search error', e); }
+
+        // hide buttons that open brand modal
+        document.querySelectorAll('[data-bs-target="#brandModal"], .open-brand-modal, .btn-brand-modal').forEach(function(el){
+            el.style.display = 'none';
+            el.setAttribute('aria-hidden','true');
+            try{ el.tabIndex = -1; }catch(e){}
+        });
+
+        // lock visible brand input
+        var brandInput = document.getElementById('brand');
+        if (brandInput) {
+            brandInput.disabled = true; // fully inert
+            brandInput.style.background = '#e9ecef';
+            brandInput.style.cursor = 'not-allowed';
+            brandInput.style.pointerEvents = 'none';
+            brandInput.setAttribute('aria-disabled','true');
+            brandInput.tabIndex = -1;
+
+            // ensure a hidden input exists to submit the brand value
+            var hidden = document.querySelector('input[type="hidden"][name="brand"][data-internal="brand-hidden"]');
+            if (!hidden) {
+                hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'brand';
+                hidden.setAttribute('data-internal','brand-hidden');
+                brandInput.parentNode.insertBefore(hidden, brandInput.nextSibling);
+            }
+            // sync function
+            function sync(){ hidden.value = brandInput.value || ''; }
+            sync();
+            // wrap updateBrand if present
+            if (typeof window.updateBrand === 'function') {
+                var _u = window.updateBrand;
+                window.updateBrand = function(){
+                    var r = _u.apply(this, arguments);
+                    sync();
+                    return r;
+                }
+            }
+            // short poll to catch programmatic changes
+            var c = 0, t = setInterval(function(){ sync(); c++; if (c>20) clearInterval(t); }, 200);
+        }
+    } catch(e){ console && console.warn && console.warn('brand full-lock error', e); }
 });
     </script>
 </body>

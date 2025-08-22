@@ -116,16 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <input type="text" name="username" required autofocus>
         <label>รหัสผ่าน</label>
         <input type="password" name="password" required>
-        <button type="submit">เข้าสู่ระบบ</button>
-
-        <!-- ✅ บัญชีทดลอง -->
-        <div class="mt-4">
-            <div class="alert alert-light border text-sm" role="alert">
-                <strong>บัญชีสำหรับทดสอบระบบ:</strong><br>
-                🔑 <b>แอดมิน:</b> <code>admin1 / 123456</code><br>
-            </div>
-        </div>
-        
+        <button type="submit">เข้าสู่ระบบ</button> 
     </form>
 </body>
 </html>

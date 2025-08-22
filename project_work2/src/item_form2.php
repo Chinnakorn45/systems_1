@@ -17,21 +17,12 @@ while ($row = mysqli_fetch_assoc($cat_result)) {
 
 // ดึงชื่อรุ่น (models) พร้อมยี่ห้อ
 $models = [];
-// ใช้ LEFT JOIN เพื่อให้แน่ใจว่าได้ข้อมูล model_id แม้ว่า brand_id จะเป็น NULL หรือไม่มีในตาราง brands
-// แก้ไข: ใช้ m.model_name เพื่อดึงชื่อรุ่นที่ถูกต้องจากตาราง models
 $model_result = mysqli_query($link, "SELECT m.model_id, m.model_name, b.brand_name FROM models m LEFT JOIN brands b ON m.brand_id = b.brand_id ORDER BY m.model_name");
 while ($row = mysqli_fetch_assoc($model_result)) {
     $models[] = $row;
 }
 
-// ดึงยี่ห้อ
-$brands = [];
-$brand_result = mysqli_query($link, "SELECT * FROM brands ORDER BY brand_name");
-while ($br = mysqli_fetch_assoc($brand_result)) {
-    $brands[] = $br;
-}
-
-// ดึงยี่ห้อ
+// ดึงยี่ห้อ (รอบเดียวพอ)
 $brands = [];
 $brand_result = mysqli_query($link, "SELECT * FROM brands ORDER BY brand_name");
 while ($br = mysqli_fetch_assoc($brand_result)) {
@@ -44,9 +35,9 @@ $item_number = $serial_number = $description = $note = $category_id = $total_qua
 $item_number_err = $serial_number_err = $brand_err = $category_id_err = $total_quantity_err = $budget_year_err = $price_per_unit_err = $image_err = $model_id_err = ''; // เพิ่ม model_id_err
 $is_edit = false;
 $model_id = '';
-$brand_name_display = ''; // เพิ่มตัวแปรสำหรับแสดงยี่ห้อในฟอร์ม
-$brand = ''; // ต้องมีตัวแปร $brand สำหรับบันทึกลง DB
-$existing_images = []; // จะเก็บภาพจาก item_images เมื่อแก้ไข
+$brand_name_display = ''; // สำหรับแสดงยี่ห้อในฟอร์ม
+$brand = ''; // สำหรับบันทึกลง DB
+$existing_images = []; // ภาพจาก item_images เมื่อแก้ไข
 
 // ถ้าเป็นการแก้ไข ดึงข้อมูลเดิมมาแสดง
 if ($item_id > 0) {
@@ -64,8 +55,8 @@ if ($item_id > 0) {
         if ($row = mysqli_fetch_assoc($result)) {
             $item_number = $row['item_number'];
             $serial_number = isset($row['serial_number']) ? $row['serial_number'] : '';
-            $brand = $row['brand']; // ค่า 'brand' ที่บันทึกใน DB
-            $brand_name_display = isset($row['brand_name']) ? $row['brand_name'] : $row['brand']; // ใช้ brand_name จาก JOIN ถ้ามี, ถ้าไม่มีใช้ค่าจากฟิลด์ brand เดิม
+            $brand = $row['brand'];
+            $brand_name_display = isset($row['brand_name']) ? $row['brand_name'] : $row['brand'];
             $description = $row['description'];
             $category_id = $row['category_id'];
             $total_quantity = $row['total_quantity'];
@@ -77,7 +68,7 @@ if ($item_id > 0) {
             $image = isset($row['image']) ? $row['image'] : '';
             $note = isset($row['note']) ? $row['note'] : '';
             $model_id = isset($row['model_id']) ? $row['model_id'] : '';
-            // ดึงภาพทั้งหมดจากตาราง item_images (ถ้ามี)
+            // ดึงรูปเพิ่มเติม
             $sql_imgs = "SELECT image_id, image_path, is_primary FROM item_images WHERE item_id = ? ORDER BY is_primary DESC, sort_order, uploaded_at";
             if ($stmt_imgs = mysqli_prepare($link, $sql_imgs)) {
                 mysqli_stmt_bind_param($stmt_imgs, "i", $item_id);
@@ -89,7 +80,6 @@ if ($item_id > 0) {
                 mysqli_stmt_close($stmt_imgs);
             }
         } else {
-            // ถ้าไม่พบ item_id ที่ระบุ ให้ redirect หรือแสดงข้อผิดพลาด
             echo "<script>alert('ไม่พบข้อมูลครุภัณฑ์ที่ต้องการแก้ไข'); window.location='items.php';</script>";
             exit;
         }
@@ -101,39 +91,37 @@ if ($item_id > 0) {
     }
 }
 
-// แสดงข้อความแจ้งเตือน (Success/Error) หลัง redirect
+// แสดงข้อความแจ้งเตือนหลัง redirect
 if (isset($_GET['success'])) {
     if ($_GET['success'] == 1) {
-        // ใช้ setTimeout เพื่อให้ alert แสดงผลก่อน redirect
         echo "<script>setTimeout(function(){ alert('บันทึกข้อมูลสำเร็จ!'); window.location = 'items.php'; }, 100);</script>";
     } else if ($_GET['success'] == 0) {
         echo "<script>alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');</script>";
     }
 }
 
-
-// เมื่อมีการส่งฟอร์ม (POST request)
+// เมื่อมีการส่งฟอร์ม (POST)
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $item_number = trim($_POST['item_number']);
     $serial_number = trim($_POST['serial_number']);
     
-    // ดึงค่า model_id ที่เลือกจาก POST
+    // model_id ที่เลือก
     $selected_model_id_for_post = isset($_POST['model_id']) ? intval($_POST['model_id']) : 0;
-    $model_id = $selected_model_id_for_post; // กำหนดค่า model_id สำหรับบันทึก
-    
-    // กำหนดค่า default ให้ $brand_from_model
+    $model_id = $selected_model_id_for_post;
+
+    // หา model_name และ brand จากอาเรย์ $models
     $brand_from_model = '';
-    // หา model_name จาก $models array โดยใช้ model_id ที่เลือก
     $model_name = '';
     if ($model_id > 0) {
         foreach ($models as $m) {
-            if ($m['model_id'] == $selected_model_id_for_post) {
+            if ((int)$m['model_id'] === $selected_model_id_for_post) {
                 $brand_from_model = $m['brand_name'];
                 $model_name = $m['model_name'];
                 break;
             }
         }
     }
+    // brand ถูกส่งมาจาก hidden input ที่เราสร้าง (ดูสคริปต์ด้านล่าง)
     $brand = isset($_POST['brand']) && trim($_POST['brand']) !== '' ? trim($_POST['brand']) : $brand_from_model;
 
     $description = trim($_POST['description']);
@@ -144,23 +132,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $purchase_date = $_POST['purchase_date'];
     $budget_year = trim($_POST['budget_year']);
     $price_per_unit = trim($_POST['price_per_unit']);
-    // $total_price = trim($_POST['total_price']); // ค่านี้จะถูกคำนวณจาก JS แต่เราจะคำนวณซ้ำเพื่อความแม่นยำ
 
     // Validate
     if (empty($serial_number)) $serial_number_err = "กรุณากรอกซีเรียลนัมเบอร์";
-    if ($model_id <= 0) $model_id_err = "กรุณาเลือกชื่อรุ่น"; // ตรวจสอบ model_id
-    if (empty($brand)) $brand_err = "ไม่สามารถระบุยี่ห้อได้ กรุณาเลือกชื่อรุ่นที่มียี่ห้อ หรือเพิ่มยี่ห้อ/รุ่นก่อน";
+    if ($model_id <= 0) $model_id_err = "กรุณาเลือกชื่อรุ่น";
+    if (empty($brand)) $brand_err = "ไม่สามารถระบุยี่ห้อได้ กรุณาเลือกรุ่นที่มียี่ห้อ หรือเพิ่มยี่ห้อ/รุ่นก่อน";
     if ($category_id <= 0) $category_id_err = "กรุณาเลือกหมวดหมู่";
     if ($total_quantity < 0) $total_quantity_err = "จำนวนรวมต้องไม่ติดลบ";
     if (empty($budget_year) || !preg_match('/^[0-9]{4}$/', $budget_year)) $budget_year_err = "กรุณากรอกปีงบประมาณ 4 หลัก";
     if ($price_per_unit === '' || !is_numeric($price_per_unit) || $price_per_unit < 0) $price_per_unit_err = "กรุณากรอกราคาต่อหน่วย (ตัวเลขไม่ติดลบ)";
-    else $price_per_unit = floatval($price_per_unit); // Convert to float for calculation
+    else $price_per_unit = floatval($price_per_unit);
 
-    // คำนวณราคารวมอีกครั้งเพื่อความถูกต้องใน DB
+    // คำนวณราคารวม
     $total_price = $total_quantity * $price_per_unit; 
 
-
-    // ตรวจสอบ Serial Number ซ้ำ
+    // ตรวจ Serial ซ้ำ
     $old_serial_number = '';
     if ($is_edit && $item_id > 0) {
         $sql_get_old_serial = "SELECT serial_number FROM items WHERE item_id = ?";
@@ -174,7 +160,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             mysqli_stmt_close($stmt_get_old);
         }
     }
-
     if (!$is_edit || ($is_edit && $serial_number !== $old_serial_number)) { 
         $sql_check_serial = "SELECT COUNT(*) AS cnt FROM items WHERE serial_number = ?";
         $stmt_check = mysqli_prepare($link, $sql_check_serial);
@@ -188,7 +173,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         mysqli_stmt_close($stmt_check);
     }
 
-    // ตรวจสอบ Item Number ซ้ำ (เฉพาะตอนเพิ่มใหม่ หรือแก้ไข item_number)
+    // ตรวจ Item Number ซ้ำ หากมีกรอก
     $old_item_number = '';
     if ($is_edit && $item_id > 0) {
         $sql_get_old_item_num = "SELECT item_number FROM items WHERE item_id = ?";
@@ -202,28 +187,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             mysqli_stmt_close($stmt_get_old_item_num);
         }
     }
-
     if (!empty($item_number)) {
-    if (!$is_edit || ($is_edit && $item_number !== $old_item_number)) { 
-        $sql_check_item_num = "SELECT COUNT(*) AS cnt FROM items WHERE item_number = ?";
-        $stmt_check_item_num = mysqli_prepare($link, $sql_check_item_num);
-        mysqli_stmt_bind_param($stmt_check_item_num, "s", $item_number);
-        mysqli_stmt_execute($stmt_check_item_num);
-        $result_check_item_num = mysqli_stmt_get_result($stmt_check_item_num);
-        $row_check_item_num = mysqli_fetch_assoc($result_check_item_num);
-        if ($row_check_item_num['cnt'] > 0) {
-            $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
-        }
-        mysqli_stmt_close($stmt_check_item_num);
+        if (!$is_edit || ($is_edit && $item_number !== $old_item_number)) { 
+            $sql_check_item_num = "SELECT COUNT(*) AS cnt FROM items WHERE item_number = ?";
+            $stmt_check_item_num = mysqli_prepare($link, $sql_check_item_num);
+            mysqli_stmt_bind_param($stmt_check_item_num, "s", $item_number);
+            mysqli_stmt_execute($stmt_check_item_num);
+            $result_check_item_num = mysqli_stmt_get_result($stmt_check_item_num);
+            $row_check_item_num = mysqli_fetch_assoc($result_check_item_num);
+            if ($row_check_item_num['cnt'] > 0) {
+                $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+            }
+            mysqli_stmt_close($stmt_check_item_num);
         }
     }
 
-    // อัปโหลดไฟล์รูป
-    // ลบรูปที่ผู้ใช้เลือกให้ลบ (จาก gallery)
+    // ลบรูปที่เลือก
     $remove_ids = isset($_POST['remove_images']) && is_array($_POST['remove_images']) ? array_map('intval', $_POST['remove_images']) : [];
     if (!empty($remove_ids)) {
         $placeholders = implode(',', array_fill(0, count($remove_ids), '?'));
-        // ดึงพาธไฟล์ก่อนลบ
+        // ดึงพาธไฟล์
         $sql_get = "SELECT image_id, image_path FROM item_images WHERE image_id IN ($placeholders)";
         if ($stmt_get = mysqli_prepare($link, $sql_get)) {
             mysqli_stmt_bind_param($stmt_get, str_repeat('i', count($remove_ids)), ...$remove_ids);
@@ -234,7 +217,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $to_delete_paths[] = $r['image_path'];
             }
             mysqli_stmt_close($stmt_get);
-            // ลบไฟล์
             foreach ($to_delete_paths as $p) {
                 if (file_exists($p)) @unlink($p);
             }
@@ -248,14 +230,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-    // ประมวลผลการอัปโหลดหลายไฟล์ (input name images[])
+    // อัปโหลดหลายไฟล์
     $uploaded_images = [];
     if (isset($_FILES['images']) && is_array($_FILES['images'])) {
         $allowed = ['jpg','jpeg','png','gif'];
-        // ตรวจสอบและสร้างโฟลเดอร์ uploads ถ้ายังไม่มี
-        if (!is_dir('uploads')) {
-            mkdir('uploads', 0777, true);
-        }
+        if (!is_dir('uploads')) mkdir('uploads', 0777, true);
         foreach ($_FILES['images']['name'] as $idx => $name) {
             if ($_FILES['images']['error'][$idx] !== UPLOAD_ERR_OK) continue;
             $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
@@ -267,17 +246,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-
-    // ประมวลผลรูปที่ถ่ายจากกล้อง (captured_images เป็น dataURL base64)
+    // รูปจากกล้อง (base64)
     if (isset($_POST['captured_images']) && is_array($_POST['captured_images'])) {
-        // ตรวจสอบและสร้างโฟลเดอร์ uploads ถ้ายังไม่มี
-        if (!is_dir('uploads')) {
-            mkdir('uploads', 0777, true);
-        }
+        if (!is_dir('uploads')) mkdir('uploads', 0777, true);
         foreach ($_POST['captured_images'] as $b64) {
             $b64 = trim($b64);
             if ($b64 === '') continue;
-            // รับเฉพาะ data:image/png หรือ image/jpeg
             if (preg_match('/^data:(image\/png|image\/jpeg);base64,/', $b64, $m)) {
                 $data = base64_decode(preg_replace('#^data:image/[^;]+;base64,#', '', $b64));
                 if ($data === false) continue;
@@ -289,22 +263,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
     }
-    // ถ้าบันทึกสำเร็จ (insert/update) จะต้องเพิ่มแถวใน item_images สำหรับแต่ละไฟล์ที่อัปโหลด
 
-    // ถ้าไม่มีค่า legacy $image และผู้ใช้อัปโหลดไฟล์ใหม่ ให้ใช้ไฟล์แรกเป็น fallback
+    // ถ้ายังไม่มี legacy $image และมีไฟล์ใหม่ ให้ตั้งไฟล์แรกเป็นภาพหลักเผื่อไว้
     if (empty($image) && !empty($uploaded_images)) {
         $image = $uploaded_images[0];
     }
 
     // หากไม่มี error
     if (empty($serial_number_err) && empty($brand_err) && empty($category_id_err) && empty($total_quantity_err) && empty($budget_year_err) && empty($price_per_unit_err) && empty($image_err) && empty($model_id_err)) {
-        
         if ($is_edit) {
             $sql = "UPDATE items SET model_name=?, item_number=?, serial_number=?, brand=?, description=?, note=?, category_id=?, total_quantity=?, image=?, location=?, purchase_date=?, budget_year=?, price_per_unit=?, total_price=? WHERE item_id=?";
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param($stmt, "ssssssiissssddi", $model_name, $item_number, $serial_number, $brand, $description, $note, $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year, $price_per_unit, $total_price, $item_id);
                 if (mysqli_stmt_execute($stmt)) {
-                    // Success: insert uploaded images into item_images
                     if (!empty($uploaded_images)) {
                         $sql_img_ins = "INSERT INTO item_images (item_id, image_path, is_primary, sort_order, uploaded_at) VALUES (?, ?, 0, 0, NOW())";
                         if ($stmt_img_ins = mysqli_prepare($link, $sql_img_ins)) {
@@ -317,7 +288,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     }
                     echo "<script>window.location = 'item_form.php?id=" . $item_id . "&success=1';</script>";
                 } else {
-                    // Error
                     error_log("Error executing UPDATE statement: " . mysqli_error($link));
                     echo "<script>alert('เกิดข้อผิดพลาดในการบันทึกการแก้ไข: " . mysqli_error($link) . "');</script>";
                 }
@@ -331,7 +301,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param($stmt, "ssssssissssssd", $model_name, $item_number, $serial_number, $brand, $description, $note, $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year, $price_per_unit, $total_price);
                 if (mysqli_stmt_execute($stmt)) {
-                    // Success: get inserted item_id and insert uploaded images
                     $new_item_id = mysqli_insert_id($link);
                     if (!empty($uploaded_images)) {
                         $sql_img_ins = "INSERT INTO item_images (item_id, image_path, is_primary, sort_order, uploaded_at) VALUES (?, ?, 0, 0, NOW())";
@@ -345,7 +314,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     }
                     echo "<script>window.location = 'item_form.php?success=1';</script>";
                 } else {
-                    // Error
                     error_log("Error executing INSERT statement: " . mysqli_error($link));
                     echo "<script>alert('เกิดข้อผิดพลาดในการบันทึกข้อมูลใหม่: " . mysqli_error($link) . "');</script>";
                 }
@@ -368,125 +336,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        body {
-            background: #e8f5e9;
-            font-family: 'Prompt', 'Kanit', 'Arial', sans-serif;
-            color: #333;
-        }
-        .container { 
-            max-width: 700px; /* ขยายความกว้างของฟอร์ม */
-            margin-top: 40px; 
-            padding: 20px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.1);
-        }
-        .form-label { 
-            font-weight: 500; 
-            color: #2e7d32; /* สีเขียวเข้มสำหรับ label */
-        }
-        .btn-main { 
-            background: linear-gradient(135deg, #4CAF50 0%, #8BC34A 100%); /* Green gradient for primary action */
-            color: #fff; 
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            transition: all 0.3s ease;
-        }
-        .btn-main:hover { 
-            background: linear-gradient(135deg, #8BC34A 0%, #4CAF50 100%); 
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            color: #fff; /* Ensure text color remains white on hover */
-        }
-        .btn-secondary {
-            background-color: #6c757d;
-            color: #fff;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            transition: all 0.3s ease;
-        }
-        .btn-secondary:hover {
-            background-color: #5a6268;
-            color: #fff;
-        }
-        .form-control.is-invalid, .form-select.is-invalid {
-            border-color: #dc3545;
-        }
-        .invalid-feedback {
-            color: #dc3545;
-        }
-        .input-group .btn-outline-secondary {
-            border-color: #ced4da;
-            color: #495057;
-        }
-        .input-group .btn-outline-secondary:hover {
-            background-color: #e2e6ea;
-            border-color: #dae0e5;
-        }
-        /* Style for image thumbnail */
-        .mb-3 img {
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 5px;
-        }
-        #qr-reader {
-            position: relative;
-            width: 100%;
-            max-width: 400px;
-            margin: auto;
-            height: 320px;
-            background: #000;
-        }
-        #qr-reader video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .scan-overlay {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            pointer-events: none;
-        }
-        .scan-frame {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 80%;
-            height: 80px;
-            transform: translate(-50%, -50%);
-            border-radius: 18px;
-            box-sizing: border-box;
-        }
-        .scan-corner {
-            position: absolute;
-            width: 28px;
-            height: 28px;
-        }
-        .scan-corner.tl { top: 0; left: 0; border-top: 4px solid #00ff66; border-left: 4px solid #00ff66; border-top-left-radius: 18px; }
-        .scan-corner.tr { top: 0; right: 0; border-top: 4px solid #00ff66; border-right: 4px solid #00ff66; border-top-right-radius: 18px; }
-        .scan-corner.bl { bottom: 0; left: 0; border-bottom: 4px solid #00ff66; border-left: 4px solid #00ff66; border-bottom-left-radius: 18px; }
-        .scan-corner.br { bottom: 0; right: 0; border-bottom: 4px solid #00ff66; border-right: 4px solid #00ff66; border-bottom-right-radius: 18px; }
-        .scan-dim {
-            position: absolute;
-            background: rgba(0,0,0,0.55);
-        }
-        .scan-dim.top { left:0; right:0; top:0; height: 32%; }
-        .scan-dim.bottom { left:0; right:0; bottom:0; height: 32%; }
-        .scan-dim.left { left:0; top:32%; bottom:32%; width:10%; }
-        .scan-dim.right { right:0; top:32%; bottom:32%; width:10%; }
-        .scan-instruction {
-            position: absolute;
-            left: 50%;
-            top: calc(50% + 60px);
-            transform: translateX(-50%);
-            color: #fff;
-            font-size: 1.1rem;
-            text-shadow: 0 1px 4px #000;
-            width: 100%;
-            text-align: center;
-            z-index: 2;
-        }
+        body { background: #e8f5e9; font-family: 'Prompt','Kanit','Arial',sans-serif; color:#333; }
+        .container { max-width: 700px; margin-top:40px; padding:20px; background:#fff; border-radius:8px; box-shadow:0 0 15px rgba(0,0,0,0.1); }
+        .form-label { font-weight:500; color:#2e7d32; }
+        .btn-main { background:linear-gradient(135deg,#4CAF50 0%,#8BC34A 100%); color:#fff; border:none; padding:10px 20px; border-radius:5px; transition:.3s; }
+        .btn-main:hover { background:linear-gradient(135deg,#8BC34A 0%,#4CAF50 100%); box-shadow:0 4px 8px rgba(0,0,0,0.2); color:#fff; }
+        .btn-secondary { background:#6c757d; color:#fff; border:none; padding:10px 20px; border-radius:5px; transition:.3s; }
+        .btn-secondary:hover { background:#5a6268; color:#fff; }
+        .form-control.is-invalid,.form-select.is-invalid { border-color:#dc3545; }
+        .invalid-feedback { color:#dc3545; }
+        .mb-3 img { border:1px solid #ddd; border-radius:4px; padding:5px; }
+        #qr-reader { position:relative; width:100%; max-width:400px; margin:auto; height:320px; background:#000; }
+        #qr-reader video { width:100%; height:100%; object-fit:cover; }
+        .scan-overlay{position:absolute; top:0; left:0; right:0; bottom:0; pointer-events:none;}
+        .scan-frame{position:absolute; top:50%; left:50%; width:80%; height:80px; transform:translate(-50%,-50%); border-radius:18px; box-sizing:border-box;}
+        .scan-corner{position:absolute; width:28px; height:28px;}
+        .scan-corner.tl{top:0; left:0; border-top:4px solid #00ff66; border-left:4px solid #00ff66; border-top-left-radius:18px;}
+        .scan-corner.tr{top:0; right:0; border-top:4px solid #00ff66; border-right:4px solid #00ff66; border-top-right-radius:18px;}
+        .scan-corner.bl{bottom:0; left:0; border-bottom:4px solid #00ff66; border-left:4px solid #00ff66; border-bottom-left-radius:18px;}
+        .scan-corner.br{bottom:0; right:0; border-bottom:4px solid #00ff66; border-right:4px solid #00ff66; border-bottom-right-radius:18px;}
+        .scan-dim{position:absolute; background:rgba(0,0,0,0.55);}
+        .scan-dim.top{left:0; right:0; top:0; height:32%;}
+        .scan-dim.bottom{left:0; right:0; bottom:0; height:32%;}
+        .scan-dim.left{left:0; top:32%; bottom:32%; width:10%;}
+        .scan-dim.right{right:0; top:32%; bottom:32%; width:10%;}
+        .scan-instruction{position:absolute; left:50%; top:calc(50% + 60px); transform:translateX(-50%); color:#fff; font-size:1.1rem; text-shadow:0 1px 4px #000; width:100%; text-align:center; z-index:2;}
     </style>
 </head>
 <body>
@@ -501,6 +375,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <div class="invalid-feedback"><?php echo $item_number_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="serial_number" class="form-label">Serial Number <span class="text-danger">*</span></label>
                 <div class="input-group">
@@ -509,21 +384,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <div class="invalid-feedback"><?php echo $serial_number_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="model_id" class="form-label">ชื่อรุ่น <span class="text-danger">*</span></label>
                 <input type="text" id="modelSearch" class="form-control mb-1" placeholder="ค้นหาชื่อรุ่น..." oninput="filterSelectOptions('modelSearch','model_id')">
                 <select class="form-select <?php echo !empty($model_id_err) ? 'is-invalid' : ''; ?>" id="model_id" name="model_id" required onchange="updateBrand()">
                     <option value="">-- เลือกรุ่น --</option>
                     <?php foreach ($models as $m): ?>
-                        <option value="<?php echo $m['model_id']; ?>" data-brand="<?php echo htmlspecialchars($m['brand_name']); ?>" <?php if ($model_id == $m['model_id']) echo 'selected'; ?>><?php echo htmlspecialchars($m['model_name']) . (isset($m['brand_name']) && $m['brand_name'] ? ' (' . htmlspecialchars($m['brand_name']) . ')' : ''); ?></option>
+                        <option value="<?php echo $m['model_id']; ?>" data-brand="<?php echo htmlspecialchars($m['brand_name']); ?>" <?php if ($model_id == $m['model_id']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($m['model_name']) . (!empty($m['brand_name']) ? ' (' . htmlspecialchars($m['brand_name']) . ')' : ''); ?>
+                        </option>
                     <?php endforeach; ?>
                 </select>
                 <div class="invalid-feedback"><?php echo $model_id_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="brand_name" class="form-label">ยี่ห้อ</label>
                 <div class="input-group">
-                    <input list="brandListD2" type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="พิมพ์เพื่อค้นหาหรือเลือกจากรายการ">
+                    <input list="brandListD2" type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="ถูกกำหนดอัตโนมัติจากรุ่น">
                     <datalist id="brandListD2">
                         <?php foreach ($brands as $b): ?>
                             <option value="<?php echo htmlspecialchars($b['brand_name']); ?>"></option>
@@ -532,21 +411,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <div class="invalid-feedback"><?php echo $brand_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="description" class="form-label">รายละเอียด</label>
                 <textarea class="form-control" id="description" name="description" rows="2"><?php echo htmlspecialchars($description); ?></textarea>
             </div>
+
             <div class="mb-3">
                 <label for="category_id" class="form-label">หมวดหมู่ <span class="text-danger">*</span></label>
                 <input type="text" id="categorySearch" class="form-control mb-1" placeholder="ค้นหาหมวดหมู่..." oninput="filterSelectOptions('categorySearch','category_id')">
                 <select class="form-select <?php echo !empty($category_id_err) ? 'is-invalid' : ''; ?>" id="category_id" name="category_id" required>
                     <option value="">-- เลือกหมวดหมู่ --</option>
                     <?php foreach ($categories as $cat): ?>
-                        <option value="<?php echo $cat['category_id']; ?>" <?php if ($category_id == $cat['category_id']) echo 'selected'; ?>><?php echo htmlspecialchars($cat['category_name']); ?></option>
+                        <option value="<?php echo $cat['category_id']; ?>" <?php if ($category_id == $cat['category_id']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($cat['category_name']); ?>
+                        </option>
                     <?php endforeach; ?>
                 </select>
                 <div class="invalid-feedback"><?php echo $category_id_err; ?></div>
             </div>
+
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label for="total_quantity" class="form-label">จำนวน <span class="text-danger">*</span></label>
@@ -559,6 +443,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     <div class="invalid-feedback"><?php echo $price_per_unit_err; ?></div>
                 </div>
             </div>
+
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label for="total_price" class="form-label">ราคารวม (บาท)</label>
@@ -566,10 +451,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     <small class="form-text text-muted">คำนวณอัตโนมัติจาก จำนวน × ราคาต่อหน่วย</small>
                 </div>
             </div>
+
             <div class="mb-3">
                 <label for="location" class="form-label">ตำแหน่งที่ติดตั้ง</label>
                 <input type="text" class="form-control" id="location" name="location" value="<?php echo htmlspecialchars($location); ?>">
             </div>
+
             <div class="mb-3">
                 <label for="budget_year" class="form-label">ปีงบประมาณ <span class="text-danger">*</span></label>
                 <input type="text" class="form-control <?php echo !empty($budget_year_err) ? 'is-invalid' : ''; ?>" id="budget_year" name="budget_year" value="<?php echo htmlspecialchars($budget_year); ?>" maxlength="4" required>
@@ -580,6 +467,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="purchase_date" class="form-label">วันที่จัดซื้อ</label>
                 <input type="date" class="form-control" id="purchase_date" name="purchase_date" value="<?php echo htmlspecialchars($purchase_date); ?>">
             </div>
+
             <div class="mb-3">
                 <label for="images" class="form-label">รูปภาพ (สามารถเลือกได้หลายไฟล์)</label>
                 <input type="file" class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>" id="images" name="images[]" accept="image/*" multiple>
@@ -604,16 +492,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <?php endif; ?>
                 <div class="invalid-feedback"><?php echo $image_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="note" class="form-label">หมายเหตุ</label>
                 <textarea class="form-control" id="note" name="note" rows="2"><?php echo htmlspecialchars($note); ?></textarea>
             </div>
+
             <div class="d-flex justify-content-center mt-4">
                 <button type="submit" class="btn btn-main me-2"><i class="fas fa-save me-1"></i> <?php echo $is_edit ? 'บันทึกการแก้ไข' : 'เพิ่มครุภัณฑ์'; ?></button>
                 <a href="items.php" class="btn btn-secondary"><i class="fas fa-times-circle me-1"></i> ยกเลิก</a>
             </div>
         </form>
     </div>
+
+    <!-- Modal: Scanner -->
     <div class="modal fade" id="scanModal" tabindex="-1" aria-labelledby="scanModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -632,32 +524,36 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
       </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-        <!-- Camera capture modal and script -->
-        <div class="modal fade" id="cameraModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">ถ่ายรูป</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+
+    <!-- Camera capture modal -->
+    <div class="modal fade" id="cameraModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">ถ่ายรูป</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <video id="cameraVideo" autoplay playsinline style="width:100%; max-height:60vh; background:#000;"></video>
+                    <canvas id="cameraCanvas" style="display:none;"></canvas>
+                    <div class="mt-2">
+                        <button id="takePhotoBtn" class="btn btn-primary">ถ่าย</button>
+                        <button id="acceptPhotoBtn" class="btn btn-success" style="display:none;">ยอมรับ</button>
+                        <button id="retakePhotoBtn" class="btn btn-secondary" style="display:none;">ถ่ายใหม่</button>
                     </div>
-                    <div class="modal-body text-center">
-                        <video id="cameraVideo" autoplay playsinline style="width:100%; max-height:60vh; background:#000;"></video>
-                        <canvas id="cameraCanvas" style="display:none;"></canvas>
-                        <div class="mt-2">
-                            <button id="takePhotoBtn" class="btn btn-primary">ถ่าย</button>
-                            <button id="acceptPhotoBtn" class="btn btn-success" style="display:none;">ยอมรับ</button>
-                            <button id="retakePhotoBtn" class="btn btn-secondary" style="display:none;">ถ่ายใหม่</button>
-                        </div>
-                        <div id="cameraPreview" class="mt-2"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
-                    </div>
+                    <div id="cameraPreview" class="mt-2"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+
     <script>
         // คำนวณราคารวมอัตโนมัติ
         function calculateTotalPrice() {
@@ -666,15 +562,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             const totalPrice = quantity * pricePerUnit;
             document.getElementById('total_price').value = totalPrice.toFixed(2);
         }
-
-        // เพิ่ม event listeners
         document.getElementById('total_quantity').addEventListener('input', calculateTotalPrice);
         document.getElementById('price_per_unit').addEventListener('input', calculateTotalPrice);
-
-        // คำนวณครั้งแรกเมื่อโหลดหน้า
         document.addEventListener('DOMContentLoaded', calculateTotalPrice);
 
-        // อัปเดตยี่ห้อตามชื่อรุ่นที่เลือก
+        // อัปเดตยี่ห้อตามรุ่นที่เลือก (อัปเดตช่องที่ผู้ใช้เห็น)
         function updateBrand() {
             var modelSelect = document.getElementById('model_id');
             var brandInput = document.getElementById('brand_name'); 
@@ -684,6 +576,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         document.getElementById('model_id').addEventListener('change', updateBrand);
         document.addEventListener('DOMContentLoaded', updateBrand);
 
+        // ค้นหาใน select
         function filterSelectOptions(searchInputId, selectId) {
             var term = document.getElementById(searchInputId).value.toLowerCase();
             var sel = document.getElementById(selectId);
@@ -707,8 +600,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             if (cs) { cs.addEventListener('blur', function(){ filterSelectOptions('categorySearch','category_id'); }); cs.addEventListener('change', function(){ filterSelectOptions('categorySearch','category_id'); }); }
         });
 
-
-        // --- Barcode Scanner Logic (QuaggaJS) ---
+        // --- Barcode Scanner (QuaggaJS) ---
         let scanTargetInputId = null;
         function openScannerQuagga(targetInputId) {
             scanTargetInputId = targetInputId;
@@ -716,28 +608,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             scanModal.show();
             setTimeout(startQuaggaScanner, 400);
         }
-
         function startQuaggaScanner() {
             Quagga.init({
                 inputStream: {
                     name: "Live",
                     type: "LiveStream",
                     target: document.querySelector('#qr-reader'),
-                    constraints: {
-                        facingMode: "environment",
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
+                    constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
                 },
-                decoder: {
-                    readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "upc_reader", "upc_e_reader"]
-                },
+                decoder: { readers: ["code_128_reader","ean_reader","ean_8_reader","code_39_reader","upc_reader","upc_e_reader"] },
                 locate: true
             }, function(err) {
                 if (err) {
                     document.getElementById('qr-reader-results').innerHTML = '<div class="text-danger">ไม่สามารถเปิดกล้องได้: ' + err + '</div>';
-                return;
-            }
+                    return;
+                }
                 Quagga.start();
                 setTimeout(() => {
                     const qrReader = document.getElementById('qr-reader');
@@ -762,163 +647,144 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }, 500);
             });
 
-            // --- Confirm Detection ---
             let lastCode = '';
             let sameCodeCount = 0;
-            const confirmThreshold = 2; // ต้องเจอซ้ำกันกี่ครั้งถึงจะยืนยัน
-
+            const confirmThreshold = 2;
             Quagga.onDetected(function(result) {
                 if (result && result.codeResult && result.codeResult.code) {
                     let code = result.codeResult.code.trim();
-                    if (code === lastCode) {
-                        sameCodeCount++;
-                    } else {
-                        lastCode = code;
-                        sameCodeCount = 1;
-                    }
+                    if (code === lastCode) sameCodeCount++; else { lastCode = code; sameCodeCount = 1; }
                     if (sameCodeCount >= confirmThreshold) {
                         document.getElementById('qr-reader-results').innerHTML = '<div class="text-success">สแกนสำเร็จ: ' + code + '</div>';
                         setTimeout(() => {
-                            if (scanTargetInputId) {
-                                document.getElementById(scanTargetInputId).value = code;
-                            }
+                            if (scanTargetInputId) document.getElementById(scanTargetInputId).value = code;
                             Quagga.stop();
-                                    const modal = bootstrap.Modal.getInstance(document.getElementById('scanModal'));
-                                    modal.hide();
-                                    document.getElementById('qr-reader-results').innerHTML = '';
-                            lastCode = '';
-                            sameCodeCount = 0;
+                            const modal = bootstrap.Modal.getInstance(document.getElementById('scanModal'));
+                            modal.hide();
+                            document.getElementById('qr-reader-results').innerHTML = '';
+                            lastCode = ''; sameCodeCount = 0;
                         }, 1000);
-                } else {
+                    } else {
                         document.getElementById('qr-reader-results').innerHTML = '<div class="text-warning">กำลังจับโฟกัส... (' + sameCodeCount + '/' + confirmThreshold + ')</div>';
                     }
                 }
             });
         }
-
         document.getElementById('scanModal').addEventListener('hidden.bs.modal', function () {
-            if (Quagga) {
-                Quagga.stop();
-            }
+            if (Quagga) { try{ Quagga.stop(); }catch(e){} }
             document.getElementById('qr-reader-results').innerHTML = '';
-            const overlay = document.querySelector('.scan-overlay');
-            if (overlay) {
-                overlay.remove();
-            }
+            const overlay = document.querySelector('.scan-overlay'); if (overlay) overlay.remove();
             scanTargetInputId = null;
         });
 
-    // --- Camera capture logic ---
-    let cameraStream = null;
-    const cameraModalEl = document.getElementById('cameraModal');
-    const cameraModal = new bootstrap.Modal(cameraModalEl);
-    document.getElementById('takePhotoBtn').addEventListener('click', async function(){
-        const video = document.getElementById('cameraVideo');
-        const canvas = document.getElementById('cameraCanvas');
-        if (!cameraStream) {
-            try {
-                cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-                video.srcObject = cameraStream;
-            } catch (err) {
-                alert('ไม่สามารถเปิดกล้องได้: ' + err.message);
-                return;
-            }
-        }
-        // capture frame
-        canvas.width = video.videoWidth || 1280;
-        canvas.height = video.videoHeight || 720;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        // show preview
-        document.getElementById('cameraPreview').innerHTML = '<img src="' + dataUrl + '" style="max-width:100%; height:auto; border:1px solid #ddd;">';
-        document.getElementById('acceptPhotoBtn').style.display = '';
-        document.getElementById('retakePhotoBtn').style.display = '';
-    });
-    document.getElementById('retakePhotoBtn').addEventListener('click', function(){
-        document.getElementById('cameraPreview').innerHTML = '';
-        document.getElementById('acceptPhotoBtn').style.display = 'none';
-        document.getElementById('retakePhotoBtn').style.display = 'none';
-    });
-    document.getElementById('acceptPhotoBtn').addEventListener('click', function(){
-        const imgEl = document.querySelector('#cameraPreview img');
-        if (!imgEl) return;
-        const dataUrl = imgEl.src;
-        // append hidden input to form
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'captured_images[]';
-        input.value = dataUrl;
-        document.querySelector('form').appendChild(input);
-        // also show thumbnail in images preview area
-        const container = document.querySelector('.mt-2.d-flex') || document.createElement('div');
-        if (!container.classList.contains('d-flex')) {
-            container.className = 'mt-2 d-flex flex-wrap gap-2 align-items-start';
-            document.getElementById('images').after(container);
-        }
-        const thumb = document.createElement('div');
-        thumb.style = 'position:relative; width:150px;';
-        thumb.innerHTML = '<img src="' + dataUrl + '" style="max-width:150px; height:auto; border:1px solid #ddd; border-radius:6px;">';
-        container.appendChild(thumb);
-        // cleanup preview and stop stream
-        document.getElementById('cameraPreview').innerHTML = '';
-        document.getElementById('acceptPhotoBtn').style.display = 'none';
-        document.getElementById('retakePhotoBtn').style.display = 'none';
-        if (cameraStream) {
-            cameraStream.getTracks().forEach(t => t.stop());
-            cameraStream = null;
-        }
-        cameraModal.hide();
-    });
-    cameraModalEl.addEventListener('hidden.bs.modal', function(){
-        if (cameraStream) {
-            cameraStream.getTracks().forEach(t => t.stop());
-            cameraStream = null;
-        }
-        document.getElementById('cameraPreview').innerHTML = '';
-        document.getElementById('acceptPhotoBtn').style.display = 'none';
-        document.getElementById('retakePhotoBtn').style.display = 'none';
-    });
-
-    // Lock brand field because it's populated automatically from the selected model
-    // This makes the input readonly, adds a small helper note, and hides any UI that would open the brand management modal.
-    // The brand value is still submitted as it's readonly (not disabled).
-    document.addEventListener('DOMContentLoaded', function(){
-        try {
-            var brandInput = document.getElementById('brand');
-            if (brandInput) {
-                brandInput.setAttribute('readonly', 'readonly');
-                brandInput.style.backgroundColor = '#f8f9fa';
-                brandInput.style.cursor = 'not-allowed';
-                // add helper note if not present
-                if (!brandInput.nextElementSibling || !brandInput.nextElementSibling.classList || !brandInput.nextElementSibling.classList.contains('brand-lock-note')) {
-                    var note = document.createElement('div');
-                    note.className = 'form-text text-muted brand-lock-note';
-                    note.innerText = 'ยี่ห้อถูกกำหนดอัตโนมัติ (ล็อคไว้ ไม่สามารถแก้ไขได้)';
-                    brandInput.parentNode.insertBefore(note, brandInput.nextSibling);
+        // --- Camera capture ---
+        let cameraStream = null;
+        const cameraModalEl = document.getElementById('cameraModal');
+        const cameraModal = new bootstrap.Modal(cameraModalEl);
+        document.getElementById('takePhotoBtn').addEventListener('click', async function(){
+            const video = document.getElementById('cameraVideo');
+            const canvas = document.getElementById('cameraCanvas');
+            if (!cameraStream) {
+                try {
+                    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                    video.srcObject = cameraStream;
+                } catch (err) {
+                    alert('ไม่สามารถเปิดกล้องได้: ' + err.message);
+                    return;
                 }
             }
-            // hide any elements that open the brand modal (by data-bs-target or known helper classes)
-            document.querySelectorAll('[data-bs-target="#brandModal"], .open-brand-modal, .btn-brand-modal').forEach(function(el){
-                el.style.display = 'none';
-            });
-        } catch(e){ console && console.warn && console.warn('brand lock init error', e); }
-    });
+            canvas.width = video.videoWidth || 1280;
+            canvas.height = video.videoHeight || 720;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            document.getElementById('cameraPreview').innerHTML = '<img src="' + dataUrl + '" style="max-width:100%; height:auto; border:1px solid #ddd; border-radius:6px;">';
+            document.getElementById('acceptPhotoBtn').style.display = '';
+            document.getElementById('retakePhotoBtn').style.display = '';
+        });
+        document.getElementById('retakePhotoBtn').addEventListener('click', function(){
+            document.getElementById('cameraPreview').innerHTML = '';
+            document.getElementById('acceptPhotoBtn').style.display = 'none';
+            document.getElementById('retakePhotoBtn').style.display = 'none';
+        });
+        document.getElementById('acceptPhotoBtn').addEventListener('click', function(){
+            const imgEl = document.querySelector('#cameraPreview img');
+            if (!imgEl) return;
+            const dataUrl = imgEl.src;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'captured_images[]';
+            input.value = dataUrl;
+            document.querySelector('form').appendChild(input);
+            const container = document.querySelector('.mt-2.d-flex') || document.createElement('div');
+            if (!container.classList.contains('d-flex')) {
+                container.className = 'mt-2 d-flex flex-wrap gap-2 align-items-start';
+                document.getElementById('images').after(container);
+            }
+            const thumb = document.createElement('div');
+            thumb.style = 'position:relative; width:150px;';
+            thumb.innerHTML = '<img src="' + dataUrl + '" style="max-width:150px; height:auto; border:1px solid #ddd; border-radius:6px;">';
+            container.appendChild(thumb);
+            document.getElementById('cameraPreview').innerHTML = '';
+            document.getElementById('acceptPhotoBtn').style.display = 'none';
+            document.getElementById('retakePhotoBtn').style.display = 'none';
+            if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+            cameraModal.hide();
+        });
+        cameraModalEl.addEventListener('hidden.bs.modal', function(){
+            if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+            document.getElementById('cameraPreview').innerHTML = '';
+            document.getElementById('acceptPhotoBtn').style.display = 'none';
+            document.getElementById('retakePhotoBtn').style.display = 'none';
+        });
 
-    // Also hide any brand-search controls to prevent users from searching/changing brand directly
-    document.addEventListener('DOMContentLoaded', function(){
-        try {
-            // hide search input(s) for brand if present
-            var bs = document.getElementById('brandSearch');
-            if (bs) bs.style.display = 'none';
-            document.querySelectorAll('.brand-search, [data-search-for="brand"], input[name="brandSearch"]').forEach(function(el){
-                el.style.display = 'none';
-            });
-            // additionally remove any event listeners that might try to filter brand select (best-effort: set pointer-events none)
-            var brandSelect = document.getElementById('brand');
-            if (brandSelect) brandSelect.style.pointerEvents = 'none';
-        } catch(e) { console && console.warn && console.warn('hide brand search error', e); }
-    });
+        // =========================
+        //  ล็อกช่องยี่ห้อแบบรวม (เวอร์ชันสุดท้าย)
+        //  - ปิดการใช้งานช่องที่เห็น (id="brand_name") 100%
+        //  - ตัด datalist ออก
+        //  - สร้าง <input type="hidden" name="brand"> เพื่อส่งค่าไป PHP
+        //  - ซิงก์ค่าทุกครั้งที่รุ่นเปลี่ยน (updateBrand)
+        // =========================
+        (function lockBrandField() {
+          const visible = document.getElementById('brand_name'); // ช่องที่ผู้ใช้เห็น
+          if (!visible) return;
+
+          // เอา datalist ออก (กันผู้ใช้กดเลือก)
+          visible.removeAttribute('list');
+
+          // ทำให้ช่องที่เห็นใช้งานไม่ได้ทั้งหมด
+          visible.disabled = true;
+          visible.style.background = '#e9ecef';
+          visible.style.cursor = 'not-allowed';
+          visible.style.pointerEvents = 'none';
+          visible.setAttribute('aria-disabled', 'true');
+          visible.tabIndex = -1;
+
+          // hidden input สำหรับส่งค่าไปยัง $_POST['brand']
+          let hidden = document.querySelector('input[type="hidden"][name="brand"][data-internal="brand-hidden"]');
+          if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = 'brand';
+            hidden.setAttribute('data-internal','brand-hidden');
+            visible.parentNode.insertBefore(hidden, visible.nextSibling);
+          }
+
+          function syncHidden(){ hidden.value = visible.value || ''; }
+          syncHidden();
+
+          if (typeof window.updateBrand === 'function') {
+            const _orig = window.updateBrand;
+            window.updateBrand = function() {
+              const res = _orig.apply(this, arguments);
+              syncHidden();
+              return res;
+            };
+          }
+
+          // เผื่อมีสคริปต์อื่นไปแก้ค่าแบบโปรแกรมมิ่ง
+          let n = 0, t = setInterval(() => { syncHidden(); if (++n > 20) clearInterval(t); }, 200);
+        })();
     </script>
 </body>
 </html>

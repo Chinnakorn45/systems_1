@@ -167,16 +167,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <a href="register.php" class="link-primary">สมัครสมาชิก</a>
         </div>
 
-        <!-- ✅ บัญชีทดลอง -->
-        <div class="mt-4">
-            <div class="alert alert-light border text-sm" role="alert">
-                <strong>บัญชีสำหรับทดสอบระบบ:</strong><br>
-                🔑 <b>แอดมิน:</b> <code>admin1 / 123456</code><br>
-                👩‍💼 <b>พนักงานทั่วไป:</b> <code>staff / 123456</code><br>
-                📦 <b>เจ้าหน้าที่พัสดุ:</b> <code>LogisticsOfficer / 123456</code>
-            </div>
-        </div>
-
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
