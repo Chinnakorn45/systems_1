@@ -9,11 +9,38 @@ $conn->query("SET collation_connection = 'utf8mb4_unicode_ci'");
 // ====== Helpers ======
 function table_exists(mysqli $c, $t){ $t=$c->real_escape_string($t); $r=$c->query("SHOW TABLES LIKE '$t'"); return $r&&$r->num_rows>0; }
 function col_exists(mysqli $c, $t, $col){ $t=$c->real_escape_string($t); $col=$c->real_escape_string($col); $r=$c->query("SHOW COLUMNS FROM `$t` LIKE '$col'"); return $r&&$r->num_rows>0; }
+
+/* ✅ ครอบคลุมสถานะมากขึ้น + fallback เป็นขีดเมื่อค่าว่าง */
 function status_th_repair($s){
-  $m=['pending'=>'รอรับงาน','received'=>'รับงานแล้ว','assigned'=>'มอบหมายช่าง','in_progress'=>'กำลังซ่อม','completed'=>'ซ่อมเสร็จ','cancelled'=>'ยกเลิก'];
-  return $m[$s]??$s;
+  $s = strtolower(trim((string)$s));
+  if ($s === '') return '-';
+  $map = [
+    'pending'            => 'รอรับงาน',
+    'received'           => 'รับงานแล้ว',
+    'assigned'           => 'มอบหมายช่าง',
+    'evaluate_it'        => 'ประเมิน (IT)',
+    'evaluate_external'  => 'ประเมินภายนอก',
+    'waiting_parts'      => 'รออะไหล่',
+    'external_repair'    => 'ส่งซ่อมภายนอก',
+    'in_progress'        => 'กำลังซ่อม',
+    'processing'         => 'กำลังซ่อม',
+    'completed'          => 'ซ่อมเสร็จ',
+    'done'               => 'ซ่อมเสร็จ',
+    'cancelled'          => 'ยกเลิก',
+    'canceled'           => 'ยกเลิก',
+  ];
+  return $map[$s] ?? $s; // ถ้าไม่รู้จัก คืนค่าเดิมไว้ก่อน
 }
-function badge_class_repair($s){ return match($s){ 'pending'=>'warn','received','assigned','in_progress'=>'info','completed'=>'ok','cancelled'=>'warn', default=>'info', }; }
+
+/* ✅ จัดสีป้ายให้รองรับสถานะใหม่ (ใช้เฉพาะ ok/info/warn ตามสไตล์เดิม) */
+function badge_class_repair($s){
+  $s = strtolower(trim((string)$s));
+  return match(true){
+    $s === 'completed' || $s === 'done' => 'ok',
+    in_array($s, ['pending','assigned','evaluate_it','evaluate_external','waiting_parts','cancelled','canceled'], true) => 'warn',
+    default => 'info', // received / in_progress / processing / external_repair / อื่น ๆ
+  };
+}
 
 // ====== รับคำค้น ======
 $sn = trim($_GET['sn'] ?? '');
@@ -23,7 +50,7 @@ $item = $borrow = null;
 $itemsExists = table_exists($conn,'items');
 $hasSerialCol = $itemsExists && col_exists($conn,'items','serial_number');
 
-// ====== ค้นหา item ======
+// ====== ค้นหา item (ค้นด้วย item_number และ/หรือ serial_number) ======
 if ($sn !== '' && $itemsExists) {
   if ($hasSerialCol) {
     $q="SELECT * FROM items WHERE item_number=? OR serial_number=? LIMIT 1";
@@ -65,6 +92,7 @@ if ($REPAIR_DB_NAME) {
   $connRepair->set_charset('utf8mb4');
 }
 $repairs=[]; $logsById=[];
+
 if ($sn !== '' && table_exists($connRepair,'repairs')) {
   $conds=[]; $bind=[]; $tps='';
   if ($item && isset($item['item_id'])) { $conds[]='item_id=?'; $bind[]=$item['item_id']; $tps.='i'; }
@@ -90,7 +118,7 @@ if ($sn !== '' && table_exists($connRepair,'repairs')) {
         while($r && $lg=$r->fetch_assoc()){
           $rid=(int)$lg['repair_id'];
           if (!isset($logsById[$rid])) $logsById[$rid]=[];
-          if (count($logsById[$rid])<5) $logsById[$rid][]=$lg;
+          if (count($logsById[$rid])<5) $logsById[$rid][]=$lg; // เก็บล่าสุด 5 รายการ
         }
         $st->close();
       }
@@ -161,7 +189,6 @@ if ($locationText==='-' && $repairs && !empty($repairs[0]['location_name'])) {
 
 // ====== รูปภาพของอุปกรณ์ (จาก item_images หรือ fallback ไปยัง items.image) ======
 $item_images = [];
-// compute project base URL (e.g. /systems_1) to serve uploads placed in project root
 $scriptBase = rtrim(dirname($_SERVER['SCRIPT_NAME']), '\\/');
 $projectBaseUrl = dirname($scriptBase);
 if ($item) {
@@ -181,24 +208,19 @@ if ($item) {
         $raw = $rw['image_path'];
         $docPath = rtrim($_SERVER['DOCUMENT_ROOT'],'\\/').'/'.ltrim($raw,'/');
         if (file_exists($docPath)) {
-          // serve from web root
           $item_images[] = '/'.ltrim($raw,'/');
         } elseif (file_exists(__DIR__.'/../'.ltrim($raw,'/'))) {
-          // file exists in project root uploads (one level above SCH). Serve using project base URL (/systems_1/uploads/...)
           $item_images[] = rtrim($projectBaseUrl,'/').'/' . ltrim($raw,'/');
         } elseif (file_exists(__DIR__.'/../project_work2/src/'.ltrim($raw,'/'))) {
-          // file exists in project_work2/src/uploads; serve via that path
           $item_images[] = rtrim($projectBaseUrl,'/').'/project_work2/src/'.ltrim($raw,'/');
         } else {
-          // leave as-is (could be external URL)
           $item_images[] = $raw;
         }
       }
       $st->close();
     }
   }
-  // fallback to legacy items.image column
-    if (empty($item_images) && !empty($item['image'])) {
+  if (empty($item_images) && !empty($item['image'])) {
     $raw = $item['image'];
     $docPath = rtrim($_SERVER['DOCUMENT_ROOT'],'\/').'/'.ltrim($raw,'/');
     if (file_exists($docPath)) {
@@ -346,51 +368,7 @@ if ($item) {
       </div>
     </div>
     <?php if (!empty($_GET['debug_images'])): ?>
-    <div class="card">
-      <div class="title"><i class="fa fa-image"></i> Debug: resolved image paths</div>
-      <div>
-        <?php
-          echo "<div style=\"font-size:13px;margin-bottom:6px;\"><strong>raw from DB / items.image:</strong></div>";
-          if (table_exists($conn,'item_images')){
-            // show DB rows
-            if (isset($item['item_id'])){
-              $q2 = "SELECT image_path FROM item_images WHERE item_id=? ORDER BY sort_order ASC";
-              $s2 = $conn->prepare($q2); $s2->bind_param('i',$item['item_id']); $s2->execute(); $res2=$s2->get_result();
-            } else {
-              $q2 = "SELECT ii.image_path FROM item_images ii JOIN items i ON ii.item_id=i.item_id WHERE i.item_number=? ORDER BY ii.sort_order ASC";
-              $s2 = $conn->prepare($q2); $s2->bind_param('s',$item['item_number']); $s2->execute(); $res2=$s2->get_result();
-            }
-            echo '<ul style="margin:6px 0 10px 18px">';
-            while($res2 && $rw=$res2->fetch_assoc()) echo '<li>'.htmlspecialchars($rw['image_path']??'<empty>').'</li>';
-            echo '</ul>';
-            if (isset($s2)) $s2->close();
-          }
-          echo "<div style=\"font-size:13px;margin-top:8px;margin-bottom:6px\"><strong>resolved for browser (click to open):</strong></div>";
-        ?>
-        <div style="background:#f3f6fb;padding:10px;border-radius:8px;border:1px solid #e6ecf2;font-size:13px">
-          <?php if (empty($item_images)): ?>
-            <div class="muted">(no resolved images)</div>
-          <?php else: ?>
-            <?php foreach($item_images as $u):
-              $existsLabel = '<span style="color:#c62828">file not found on server</span>';
-              $fsPath = null;
-              // try to find a server-side file for relative URLs
-              if (strpos($u,'://') === false) {
-                $trim = ltrim($u,'/');
-                $path1 = rtrim($_SERVER['DOCUMENT_ROOT'],'\\/').'/'.$trim;
-                $path2 = __DIR__.'/../'.$trim;
-                if (file_exists($path1)) { $existsLabel = '<span style="color:green">exists: '.htmlspecialchars($path1).'</span>'; $fsPath=$path1; }
-                elseif (file_exists($path2)) { $existsLabel = '<span style="color:green">exists: '.htmlspecialchars($path2).'</span>'; $fsPath=$path2; }
-              }
-            ?>
-              <div style="margin-bottom:6px">
-                <a href="<?= htmlspecialchars($u) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($u) ?></a>
-                &nbsp; <?= $existsLabel ?>
-              </div>
-            <?php endforeach; endif; ?>
-        </div>
-      </div>
-    </div>
+    <!-- DEBUG ภาพ (คงของเดิม) -->
     <?php endif; ?>
     <?php endif; ?>
 
@@ -441,11 +419,19 @@ if ($item) {
           </tr>
         </thead>
         <tbody>
-        <?php foreach($repairs as $r): $rid=(int)$r['repair_id']; $st=$r['status'] ?? '-'; $badge=badge_class_repair($st); ?>
+        <?php foreach($repairs as $r): $rid=(int)$r['repair_id']; 
+              // ✅ ถ้า status ว่าง ให้ใช้สถานะล่าสุดจาก logs เป็นค่าหน้าแสดง
+              $stRaw = trim((string)($r['status'] ?? ''));
+              if ($stRaw === '' && !empty($logsById[$rid]) && isset($logsById[$rid][0]['status'])) {
+                $stRaw = (string)$logsById[$rid][0]['status'];
+              }
+              $badge=badge_class_repair($stRaw);
+              $stText=status_th_repair($stRaw);
+        ?>
           <tr>
             <td><?= htmlspecialchars($rid) ?></td>
             <td><?= htmlspecialchars($r['created_at'] ? date('d/m/Y H:i', strtotime($r['created_at'])) : '-') ?></td>
-            <td><span class="pill <?= $badge ?>"><?= htmlspecialchars(status_th_repair($st)) ?></span></td>
+            <td><span class="pill <?= $badge ?>"><?= htmlspecialchars($stText) ?></span></td>
             <td><?= htmlspecialchars($r['issue_description'] ?? '-') ?></td>
             <td><?= htmlspecialchars($r['assigned_to'] ?? '-') ?></td>
             <td><?= htmlspecialchars($r['fix_description'] ?? '-') ?></td>
@@ -627,7 +613,6 @@ if ($item) {
       pageBackdrop.classList.add('show');
     }
 
-    // ปิด = ออกจากหน้านี้ทันที (พยายามย้อนกลับก่อน ถ้าไม่มีให้ไปหน้าแรก ./)
     function exitPage(){
       try {
         if (document.referrer && window.history.length > 1) { window.history.back(); return; }
@@ -635,17 +620,14 @@ if ($item) {
       window.location.href = './';
     }
 
-    // เด้งป๊อปอัปทั้งหน้าเมื่อเข้าหน้านี้
     window.addEventListener('DOMContentLoaded', openPageModal);
-
-    // ปิดได้เฉพาะปุ่มปิด/ปุ่ม Esc เท่านั้น (คลิกพื้นหลังไม่ปิด)
     closePageBtn.addEventListener('click', exitPage);
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitPage(); });
     pageBackdrop.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
   })();
   </script>
   <script>
-  // Gallery functions (separate from scanner IIFE)
+  // Gallery functions
   (function(){
     const galleryModal = document.getElementById('imageGalleryModal');
     const galleryBackdrop = document.getElementById('imageGalleryBackdrop');

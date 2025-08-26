@@ -27,8 +27,8 @@ $role = $_SESSION['role'] ?? '';
         <li><a href="logout.php"><i class="fas fa-sign-out-alt me-2"></i> ออกจากระบบ</a></li>
     </ul>
     <div style="margin-top:auto; padding: 18px 0 10px 0; text-align:center; font-size:0.55em; color:#e0e6ef; opacity:0.85;">
-        <span style="font-size:1.1em;">พัฒนาโดย <b>นายชินกร ทองสอาด</b> และ</span><br>
-        <span style="font-size:1.1em;"><b>นางสาวซากีหนะต์ ปรังเจะ</b></span><br>
-        <span style="font-size:0.9em;">© 2025</span>
+        <span style="font-size:1.5em;">พัฒนาโดย <b>นายชินกร ทองสอาด</b> และ</span><br>
+        <span style="font-size:1.5em;"><b>นางสาวซากีหนะต์ ปรังเจะ</b></span><br>
+        <span style="font-size:1.1em;">© 2025</span>
     </div>
 </div>
