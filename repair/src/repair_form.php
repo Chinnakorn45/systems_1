@@ -5,6 +5,25 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['staff', 'admi
     header('Location: login.php'); exit;
 }
 
+// === แผนที่สถานะ (อังกฤษ -> ไทย) สำหรับแสดงผลสวย ๆ ===
+$status_map = [
+    'received'             => 'รับเรื่อง',
+    'evaluate_it'          => 'ประเมิน (โดย IT)',
+    'evaluate_repairable'  => 'ประเมิน: ซ่อมได้โดย IT',
+    'evaluate_external'    => 'ประเมิน: ซ่อมไม่ได้ - ส่งซ่อมภายนอก',
+    'evaluate_disposal'    => 'ประเมิน: อุปกรณ์ไม่คุ้มซ่อม/รอจำหน่าย',
+    'external_repair'      => 'ซ่อมไม่ได้ - ส่งซ่อมภายนอก',
+    'repair_completed'     => 'ซ่อมเสร็จ',
+    'waiting_delivery'     => 'รอส่งมอบ',
+    'delivered'            => 'ส่งมอบ',
+    'cancelled'            => 'ยกเลิก',
+    // legacy/extra
+    'pending'              => 'รอดำเนินการ',
+    'in_progress'          => 'กำลังซ่อม',
+    'done'                 => 'ซ่อมเสร็จ',
+    ''                     => 'รอดำเนินการ',
+];
+
 // get department name
 $dept_name = '-';
 $user_id = intval($_SESSION['user_id']);
@@ -13,43 +32,93 @@ if ($user_res && $user_res->num_rows) {
     $dept_name = $user_res->fetch_assoc()['department'];
 }
 
+$error = null;
+$success = false;
+
 // handle form submit
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $location_name = $dept_name;
+
     if (isset($_POST['item_id']) && $_POST['item_id'] === 'other') {
         $item_id       = null;
-        $asset_number  = $_POST['asset_number'] ?? '';
-        $serial_number = $_POST['other_serial_number'] ?? '';
-        $brand         = $_POST['other_brand'] ?? '';
-        $model         = $_POST['other_model'] ?? '';
-        $desc          = $_POST['issue_description'] ?? '';
+        $asset_number  = trim($_POST['asset_number'] ?? '');
+        $serial_number = trim($_POST['other_serial_number'] ?? '');
+        $brand         = trim($_POST['other_brand'] ?? '');
+        $model         = trim($_POST['other_model'] ?? '');
+        $desc          = trim($_POST['issue_description'] ?? '');
     } else {
-        $item_id       = $_POST['item_id'] ?? null;
-        $asset_number  = $_POST['asset_number'] ?? '';
-        $serial_number = $_POST['serial_number'] ?? '';
-        $brand         = $_POST['brand'] ?? '';
-        $model         = $_POST['model_name'] ?? '';
-        $desc          = $_POST['issue_description'] ?? '';
+        $item_id       = isset($_POST['item_id']) && $_POST['item_id'] !== '' ? intval($_POST['item_id']) : null;
+        $asset_number  = trim($_POST['asset_number'] ?? '');
+        $serial_number = trim($_POST['serial_number'] ?? '');
+        $brand         = trim($_POST['brand'] ?? '');
+        $model         = trim($_POST['model_name'] ?? '');
+        $desc          = trim($_POST['issue_description'] ?? '');
     }
 
-    $img = '';
-    if (!empty($_FILES['image']['name'])) {
-        $img = 'uploads/' . uniqid('', true) . '_' . basename($_FILES['image']['name']);
-        @mkdir(dirname($img), 0777, true);
-        move_uploaded_file($_FILES['image']['tmp_name'], $img);
-    }
-
-    $sql = "INSERT INTO repairs
-            (item_id, reported_by, issue_description, image, asset_number, serial_number, location_name, brand, model_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    $stmt = $conn->prepare($sql) or die('Prepare failed: '.$conn->error);
-    $uid = intval($_SESSION['user_id']);
-    $stmt->bind_param('iisssssss', $item_id, $uid, $desc, $img, $asset_number, $serial_number, $location_name, $brand, $model);
+    // ===== ป้องกันการแจ้งซ้ำ =====
+    // อนุญาตให้แจ้งใหม่ได้เมื่อเคสล่าสุดของชิ้นนั้นเป็น 'cancelled' หรือ 'delivered'
+    $dup_sql = "
+        SELECT r.repair_id, COALESCE(latest.status, r.status) AS current_status, r.created_at
+        FROM repairs r
+        LEFT JOIN (
+            SELECT rl1.repair_id, rl1.status
+            FROM repair_logs rl1
+            JOIN (
+                SELECT repair_id, MAX(updated_at) AS max_updated
+                FROM repair_logs
+                GROUP BY repair_id
+            ) rl2 ON rl1.repair_id = rl2.repair_id AND rl1.updated_at = rl2.max_updated
+        ) latest ON latest.repair_id = r.repair_id
+        WHERE
+        (
+            (? IS NOT NULL AND r.item_id = ?)
+            OR (? <> '' AND r.asset_number = ?)
+            OR (? <> '' AND r.serial_number = ?)
+        )
+        AND COALESCE(latest.status, r.status) NOT IN ('cancelled', 'delivered')
+        ORDER BY r.created_at DESC
+        LIMIT 1
+    ";
+    $stmt = $conn->prepare($dup_sql);
+    $item_id_param = $item_id; // อาจเป็น null ได้
+    $stmt->bind_param(
+        'iissss',
+        $item_id_param, $item_id_param,
+        $asset_number, $asset_number,
+        $serial_number, $serial_number
+    );
     $stmt->execute();
+    $dup_res = $stmt->get_result();
+    if ($dup_res && $dup_res->num_rows > 0) {
+        $dup = $dup_res->fetch_assoc();
+        $status_en   = $dup['current_status'];
+        $thai_status = $status_map[$status_en] ?? 'ไม่ระบุสถานะ';
+        $error = "มีรายการแจ้งซ่อมค้างอยู่ (เลขที่ {$dup['repair_id']}, สถานะ: {$thai_status}) — ไม่สามารถแจ้งซ้ำได้จนกว่าจะยกเลิกหรือส่งมอบ";
+    }
     $stmt->close();
-    $success = true;
 
-    @require_once __DIR__ . '/send_discord_notification.php';
+    if (!$error) {
+        // อัปโหลดรูป (ถ้ามี)
+        $img = '';
+        if (!empty($_FILES['image']['name'])) {
+            $img = 'uploads/' . uniqid('', true) . '_' . basename($_FILES['image']['name']);
+            @mkdir(dirname($img), 0777, true);
+            move_uploaded_file($_FILES['image']['tmp_name'], $img);
+        }
+
+        // บันทึกเคสใหม่
+        $sql = "INSERT INTO repairs
+                (item_id, reported_by, issue_description, image, asset_number, serial_number, location_name, brand, model_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $stmt = $conn->prepare($sql) or die('Prepare failed: '.$conn->error);
+        $uid = intval($_SESSION['user_id']);
+        $stmt->bind_param('iisssssss', $item_id, $uid, $desc, $img, $asset_number, $serial_number, $location_name, $brand, $model);
+        $stmt->execute();
+        $stmt->close();
+        $success = true;
+
+        @require_once __DIR__ . '/send_discord_notification.php';
+    }
 }
 
 // รายการที่ยืมอยู่ตอนนี้
@@ -85,7 +154,10 @@ $items = $conn->query("
 <?php include 'sidebar.php'; ?>
 <div class="container mt-5">
   <h3>แจ้งซ่อมครุภัณฑ์</h3>
-  <?php if (!empty($success)): ?>
+
+  <?php if ($error): ?>
+    <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
+  <?php elseif (!empty($success)): ?>
     <div class="alert alert-success">แจ้งซ่อมสำเร็จ</div>
   <?php endif; ?>
 
@@ -185,7 +257,7 @@ function toggleOtherDetails(sel) {
   }
 }
 
-// เลือกจาก select → เติมข้อมูลผ่าน get_item_info.php (ยังคงไว้ได้)
+// เลือกจาก select → เติมข้อมูลผ่าน get_item_info.php
 const itemSelect = document.querySelector('select[name="item_id"]');
 itemSelect.addEventListener('change', function() {
   const itemId = this.value;
@@ -208,7 +280,7 @@ itemSelect.addEventListener('change', function() {
   }
 });
 
-// ====== Auto-suggest: เติมอัตโนมัติจากผลค้นหา (ไม่พึ่ง endpoint อื่น) ======
+// ====== Auto-suggest from search_items.php ======
 (function(){
   const searchInput = document.getElementById('itemSearch');
   const resultsBox  = document.getElementById('searchResults');
@@ -260,7 +332,7 @@ itemSelect.addEventListener('change', function() {
     }, 250);
   });
 
-  // คลิกผลค้นหา → เติมช่องทันที + เซ็ต select
+  // คลิกผลค้นหา → เติมฟอร์ม + อัพเดต select
   resultsBox.addEventListener('click', function(e){
     const row = e.target.closest('.sr-item'); if(!row) return;
 
@@ -270,13 +342,11 @@ itemSelect.addEventListener('change', function() {
     const brand  = row.getAttribute('data-brand')  || '';
     const model  = row.getAttribute('data-model')  || '';
 
-    // เติมฟิลด์ทันที
     document.getElementById('asset_number').value  = asset;
     document.getElementById('serial_number').value = serial;
     document.getElementById('brand').value         = brand;
     document.getElementById('model_name').value    = model;
 
-    // อัพเดต select (ถ้า option ยังไม่มี ให้เพิ่มก่อน other)
     if (id) {
       let opt = itemSelect.querySelector(`option[value="${CSS.escape(id)}"]`);
       if(!opt){
@@ -287,17 +357,15 @@ itemSelect.addEventListener('change', function() {
         itemSelect.insertBefore(opt, otherOpt);
       }
       itemSelect.value = id;
-      // ถ้าต้องการดึงจาก get_item_info.php เพิ่มความชัวร์ ก็ปล่อย change นี้ไว้
       itemSelect.dispatchEvent(new Event('change'));
     }
 
-    // ปิดกล่องผลลัพธ์
     searchInput.value = '';
     resultsBox.style.display = 'none';
     resultsBox.innerHTML = '';
   });
 
-  // คลิกรอบนอก → ปิด
+  // ปิดผลลัพธ์เมื่อคลิกรอบนอก
   document.addEventListener('click', function(e){
     if(!resultsBox.contains(e.target) && e.target !== searchInput){
       resultsBox.style.display = 'none';

@@ -1,0 +1,79 @@
+/* ===== Sidebar (Desktop) & Offcanvas (Mobile) ===== */
+:root{
+  --brand:#0d6efd;            /* เปลี่ยนสีหลักได้ที่นี่ */
+  --brand-50:#eef5ff;
+  --text:#3d4a5d;
+  --muted:#6c757d;
+  --border:#e9ecef;
+  --bg:#ffffff;
+}
+
+.app-sidebar{
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+/* ป้ายกลุ่มเมนู */
+.sidebar-label{
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: .02em;
+  padding: .6rem 1rem .25rem;
+}
+
+/* ลิงก์เมนู (Desktop) */
+.sidebar-menu .nav-link{
+  display:flex; align-items:center; gap:.5rem;
+  color: var(--text);
+  padding: .66rem 1rem;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.sidebar-menu .nav-link i{ width:1.25rem; text-align:center; }
+
+.sidebar-menu .nav-link:hover{
+  background: #f8f9fb;
+  color: var(--brand);
+}
+
+.sidebar-menu .nav-link.active{
+  background: var(--brand-50);
+  color: var(--brand);
+  font-weight: 600;
+  border-left-color: var(--brand);
+}
+
+/* ===== Offcanvas (Mobile) ===== */
+.sidebar-menu-mobile .list-group-item{
+  border:0;
+  border-bottom:1px solid var(--border);
+  color: var(--text);
+  padding: .85rem 1rem;
+  display:flex; align-items:center; gap:.5rem;
+}
+
+.sidebar-menu-mobile .list-group-item:hover{
+  background:#f8f9fb; color:var(--brand);
+}
+
+.sidebar-menu-mobile .list-group-item.active{
+  background: var(--brand-50);
+  color: var(--brand);
+  font-weight:600;
+}
+
+.sidebar-menu-mobile .list-group-item i{ width:1.25rem; text-align:center; }
+
+.offcanvas-body{ padding:0; }
+
+/* สกอร์ลบาร์เรียบ ๆ */
+.app-sidebar::-webkit-scrollbar{ width:8px; }
+.app-sidebar::-webkit-scrollbar-thumb{ background:#dfe4ea; border-radius:8px; }
+.app-sidebar::-webkit-scrollbar-thumb:hover{ background:#cfd5dd; }

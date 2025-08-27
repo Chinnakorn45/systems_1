@@ -106,17 +106,22 @@ if ($logo_path) {
                     </a>
 
                     <?php if ($canLookup): ?>
-                    <!-- การ์ดใหม่: ค้นหาอุปกรณ์ (ไปหน้าแยก) -->
-                    <!-- ✅ แก้ลิงก์ให้ถูก: อยู่โฟลเดอร์เดียวกับไฟล์นี้ -->
+                    <!-- การ์ด: ค้นหาอุปกรณ์ (สแกน/พิมพ์) -->
                     <a href="../SCH/equipment_lookup.php" class="feature-card">
                         <div class="icon-wrapper"><i class="fas fa-magnifying-glass"></i></div>
                         <h3>ค้นหาอุปกรณ์ (สแกน/พิมพ์)</h3>
                     </a>
                     <?php endif; ?>
+
+                    <!-- ✅ การ์ดใหม่: ระบบจัดการอุปกรณ์สำนักงาน -->
+                    <!-- แก้ href ให้ชี้โฟลเดอร์โปรเจ็กต์จริงของคุณได้ เช่น ../office_assets/src/index.php -->
+                    <a href="../supplies/dashboard.php" class="feature-card">
+                        <div class="icon-wrapper"><i class="fas fa-clipboard-list"></i></div>
+                        <h3>ระบบจัดการอุปกรณ์สำนักงาน</h3>
+                    </a>
                 </div>
 
                 <!-- ส่วนค้นหา/สแกนถูกย้ายไป equipment_lookup.php แล้ว -->
-
             </div>
         </section>
     </main>

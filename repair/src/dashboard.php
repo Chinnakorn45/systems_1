@@ -5,10 +5,9 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'proc
     header('Location: login.php'); exit;
 }
 
-// จำนวนแจ้งซ่อม - แก้ไขให้ดึงสถานะล่าสุดจาก repair_logs
+// ===== สรุปจำนวนการแจ้งซ่อม (อ้างอิงสถานะล่าสุดจาก repair_logs) =====
 $total_repairs = $conn->query("SELECT COUNT(*) FROM repairs")->fetch_row()[0];
 
-// ดึงสถานะล่าสุดจาก repair_logs
 $pending_repairs = $conn->query("
     SELECT COUNT(*) FROM repairs r 
     LEFT JOIN (
@@ -34,7 +33,10 @@ $inprogress_repairs = $conn->query("
             GROUP BY repair_id
         )
     ) latest ON r.repair_id = latest.repair_id
-    WHERE COALESCE(latest.status, r.status) IN ('received', 'evaluate_it', 'evaluate_repairable', 'evaluate_external', 'evaluate_disposal', 'external_repair', 'procurement_managing', 'procurement_returned', 'waiting_delivery', 'in_progress')
+    WHERE COALESCE(latest.status, r.status) IN (
+        'received','evaluate_it','evaluate_repairable','evaluate_external','evaluate_disposal',
+        'external_repair','procurement_managing','procurement_returned','waiting_delivery','in_progress'
+    )
 ")->fetch_row()[0];
 
 $done_repairs = $conn->query("
@@ -48,7 +50,7 @@ $done_repairs = $conn->query("
             GROUP BY repair_id
         )
     ) latest ON r.repair_id = latest.repair_id
-    WHERE COALESCE(latest.status, r.status) IN ('done', 'delivered', 'repair_completed')
+    WHERE COALESCE(latest.status, r.status) IN ('done','delivered','repair_completed')
 ")->fetch_row()[0];
 
 $cancelled_repairs = $conn->query("
@@ -67,16 +69,17 @@ $cancelled_repairs = $conn->query("
 
 $done_percent = $total_repairs > 0 ? round(($done_repairs / $total_repairs) * 100, 1) : 0;
 
-// จำนวนผู้ใช้งาน
+// ===== จำนวนผู้ใช้งาน =====
 $total_users = $conn->query("SELECT COUNT(*) FROM users")->fetch_row()[0];
 $admin_users = $conn->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetch_row()[0];
 $procurement_users = $conn->query("SELECT COUNT(*) FROM users WHERE role='procurement'")->fetch_row()[0];
 $staff_users = $conn->query("SELECT COUNT(*) FROM users WHERE role='staff'")->fetch_row()[0];
 
-// แจ้งซ่อมล่าสุด 5 รายการ - แก้ไขให้ดึงสถานะล่าสุดจาก repair_logs
+// ===== แจ้งซ่อมล่าสุด 5 รายการ (อิงสถานะล่าสุด) =====
 $latest_repairs = [];
-$sql = "SELECT r.repair_id, r.created_at, r.asset_number, r.model_name, r.location_name, u_reported.full_name AS reporter, u_reported.department,
-        COALESCE(latest.status, r.status) as current_status
+$sql = "SELECT r.repair_id, r.created_at, r.asset_number, r.model_name, r.location_name,
+               u_reported.full_name AS reporter, u_reported.department,
+               COALESCE(latest.status, r.status) AS current_status
         FROM repairs r
         LEFT JOIN users u_reported ON r.reported_by = u_reported.user_id
         LEFT JOIN (
@@ -88,12 +91,13 @@ $sql = "SELECT r.repair_id, r.created_at, r.asset_number, r.model_name, r.locati
                 GROUP BY repair_id
             )
         ) latest ON r.repair_id = latest.repair_id
-        ORDER BY r.created_at DESC LIMIT 5";
+        ORDER BY r.created_at DESC
+        LIMIT 5";
 $res = $conn->query($sql);
 while ($row = $res->fetch_assoc()) {
     $latest_repairs[] = [
         'repair_id' => $row['repair_id'],
-        'ref_no' => 'REQ' . $row['repair_id'],
+        'ref_no' => 'REQ'.$row['repair_id'],
         'item_name' => $row['model_name'] ?: '-',
         'reporter' => $row['reporter'] ?: '-',
         'department' => $row['department'] ?: '-',
@@ -102,32 +106,80 @@ while ($row = $res->fetch_assoc()) {
     ];
 }
 
-// แสดงเฉพาะรายการแจ้งซ่อมใหม่ที่ยังไม่ดำเนินการ - แก้ไขให้ดึงสถานะล่าสุดจาก repair_logs
+// ===== รายการแจ้งใหม่ที่รอดำเนินการ (5 รายการ) =====
 $alerts = [];
-$sql_pending = "SELECT r.repair_id, r.model_name, r.asset_number, r.location_name, r.created_at, u.full_name AS reporter, u.department
-FROM repairs r
-LEFT JOIN users u ON r.reported_by = u.user_id
-LEFT JOIN (
-    SELECT repair_id, status 
-    FROM repair_logs 
-    WHERE (repair_id, updated_at) IN (
-        SELECT repair_id, MAX(updated_at) 
-        FROM repair_logs 
-        GROUP BY repair_id
-    )
-) latest ON r.repair_id = latest.repair_id
-WHERE COALESCE(latest.status, r.status) IN ('pending', '')
-ORDER BY r.created_at DESC LIMIT 5";
+$sql_pending = "SELECT r.repair_id, r.model_name, r.asset_number, r.location_name, r.created_at,
+                       u.full_name AS reporter, u.department
+                FROM repairs r
+                LEFT JOIN users u ON r.reported_by = u.user_id
+                LEFT JOIN (
+                    SELECT repair_id, status 
+                    FROM repair_logs 
+                    WHERE (repair_id, updated_at) IN (
+                        SELECT repair_id, MAX(updated_at)
+                        FROM repair_logs
+                        GROUP BY repair_id
+                    )
+                ) latest ON r.repair_id = latest.repair_id
+                WHERE COALESCE(latest.status, r.status) IN ('pending','')
+                ORDER BY r.created_at DESC
+                LIMIT 5";
 $res_pending = $conn->query($sql_pending);
 while ($row = $res_pending->fetch_assoc()) {
     $alerts[] = [
         'item_name' => $row['model_name'] ?: 'ไม่ระบุ',
-        'desc' => ($row['asset_number'] ? $row['asset_number'] . ' - ' : '') . ($row['location_name'] ?: '-') . '<br>' .
-            '<span class="text-muted">' . ($row['reporter'] ?: '-') . '</span><br>' .
-            '<span class="text-danger"><i class="fas fa-exclamation-circle"></i> แจ้งใหม่ ยังไม่ดำเนินการ</span>'
+        'desc' => ($row['asset_number'] ? $row['asset_number'].' - ' : '') .
+                  ($row['location_name'] ?: '-') . '<br>' .
+                  '<span class="text-muted">'.($row['reporter'] ?: '-').'</span><br>' .
+                  '<span class="text-danger"><i class="fas fa-exclamation-circle"></i> แจ้งใหม่ ยังไม่ดำเนินการ</span>'
     ];
 }
 
+// ===== Top 5 (หมวดหมู่จริงถ้ามี items.category_id -> categories, ไม่มีก็ fallback เป็น brand) =====
+$top5_labels = [];
+$top5_counts = [];
+$top5_title  = 'Top 5 หมวดหมู่ที่ส่งซ่อมบ่อยสุด';
+
+// ตรวจสอบตาราง items และคอลัมน์ category_id
+$use_items_category = false;
+$has_items_table = $conn->query("SHOW TABLES LIKE 'items'");
+if ($has_items_table && $has_items_table->num_rows > 0) {
+    $has_category_id_col = $conn->query("SHOW COLUMNS FROM items LIKE 'category_id'");
+    if ($has_category_id_col && $has_category_id_col->num_rows > 0) {
+        $use_items_category = true;
+    }
+}
+
+if ($use_items_category) {
+    $sql_top5 = "
+        SELECT COALESCE(c.category_name, 'ไม่ระบุ') AS cat_name, COUNT(*) AS total_cnt
+        FROM repairs r
+        LEFT JOIN items i ON i.item_id = r.item_id
+        LEFT JOIN categories c ON c.category_id = i.category_id
+        GROUP BY cat_name
+        ORDER BY total_cnt DESC
+        LIMIT 5
+    ";
+    $top5_title = 'Top 5 หมวดหมู่ที่ส่งซ่อมบ่อยสุด';
+} else {
+    $sql_top5 = "
+        SELECT COALESCE(r.brand, 'ไม่ระบุ') AS cat_name, COUNT(*) AS total_cnt
+        FROM repairs r
+        GROUP BY r.brand
+        ORDER BY total_cnt DESC
+        LIMIT 5
+    ";
+    $top5_title = 'Top 5 แบรนด์ที่ส่งซ่อมบ่อยสุด';
+}
+$res_top5 = $conn->query($sql_top5);
+if ($res_top5) {
+    while ($row = $res_top5->fetch_assoc()) {
+        $top5_labels[] = $row['cat_name'];
+        $top5_counts[] = (int)$row['total_cnt'];
+    }
+}
+
+// ===== Helpers =====
 function status_badge($status) {
     $map = [
         'received' => ['รับเรื่อง', 'info'],
@@ -142,27 +194,19 @@ function status_badge($status) {
         'waiting_delivery' => ['รอส่งมอบ', 'warning'],
         'delivered' => ['ส่งมอบ', 'success'],
         'cancelled' => ['ยกเลิก', 'secondary'],
-        // สถานะเก่า (เพื่อความเข้ากันได้)
         'pending' => ['รอดำเนินการ', 'secondary'],
         'in_progress' => ['กำลังซ่อม', 'info'],
         'done' => ['ซ่อมเสร็จ', 'success'],
-        // สถานะค่าว่าง
         '' => ['รอดำเนินการ', 'secondary'],
     ];
-    if (!isset($map[$status])) return '<span class="badge bg-secondary">ไม่ระบุสถานะ</span>';
-    [$th, $color] = $map[$status];
+    if (!isset($map[$status])) return "<span class='badge bg-secondary'>ไม่ระบุสถานะ</span>";
+    [$th,$color] = $map[$status];
     return "<span class='badge bg-$color'>$th</span>";
 }
-
 function thaidate($date, $format = 'j F Y') {
     $ts = strtotime($date);
-    $thai_months = [
-        '', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-        'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-    ];
-    $day = date('j', $ts);
-    $month = (int)date('n', $ts);
-    $year = date('Y', $ts) + 543;
+    $thai_months = ['', 'มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+    $day = date('j',$ts); $month=(int)date('n',$ts); $year=date('Y',$ts)+543;
     return "$day {$thai_months[$month]} $year";
 }
 ?>
@@ -174,11 +218,14 @@ function thaidate($date, $format = 'j F Y') {
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <style>#top5CategoriesChart{height:240px!important;}</style>
 </head>
 <body>
 <?php include 'sidebar.php'; ?>
 <div class="container mt-5">
   <h2 class="mb-4"><i class="fas fa-tachometer-alt me-2"></i> Dashboard</h2>
+
+  <!-- แถวสรุปการ์ดตัวเลข -->
   <div class="row g-4 dashboard-section">
     <div class="col-md-4">
       <div class="dashboard-card p-4 bg-white">
@@ -215,8 +262,11 @@ function thaidate($date, $format = 'j F Y') {
       </div>
     </div>
   </div>
-  <div class="row g-4">
-    <div class="col-lg-8">
+
+  <!-- แถวหลัก: ซ้าย = ล่าสุด + Top5 (ซ้อนกัน), ขวา = Alerts -->
+  <div class="row g-4 mt-0">
+    <!-- ซ้าย -->
+    <div class="col-lg-8 d-flex flex-column gap-4">
       <div class="dashboard-card p-4 bg-white">
         <div class="mb-3 fw-bold"><i class="fas fa-list me-2"></i> การแจ้งซ่อมล่าสุด</div>
         <table class="table dashboard-table">
@@ -239,7 +289,17 @@ function thaidate($date, $format = 'j F Y') {
           </tbody>
         </table>
       </div>
+
+      <!-- Top 5 อยู่คอลัมน์ซ้ายเดียวกัน เพื่อไม่ให้โดนดัน -->
+      <div class="dashboard-card p-4 bg-white">
+        <div class="mb-3 fw-bold">
+          <i class="fas fa-chart-bar me-2"></i> <?= htmlspecialchars($top5_title) ?>
+        </div>
+        <canvas id="top5CategoriesChart" height="220"></canvas>
+      </div>
     </div>
+
+    <!-- ขวา -->
     <div class="col-lg-4">
       <div class="dashboard-card p-4 bg-white">
         <div class="mb-2 fw-bold text-warning"><i class="fas fa-exclamation-triangle me-2"></i> รายการแจ้งซ่อมใหม่ที่รอดำเนินการ</div>
@@ -252,6 +312,49 @@ function thaidate($date, $format = 'j F Y') {
       </div>
     </div>
   </div>
+
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const labels = <?= json_encode($top5_labels, JSON_UNESCAPED_UNICODE) ?>;
+  const data   = <?= json_encode($top5_counts, JSON_UNESCAPED_UNICODE) ?>;
+  const el = document.getElementById('top5CategoriesChart'); if(!el) return;
+  const ctx = el.getContext('2d');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'จำนวนแจ้งซ่อม',
+        data,
+        backgroundColor: 'rgba(219, 0, 0, 0.25)',
+        borderColor: 'rgba(228, 137, 0, 1)',
+        borderWidth: 1,
+        borderRadius: 6,
+        barThickness: 22,
+        maxBarThickness: 26
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `  ${ctx.raw} ครั้ง` } }
+      },
+      scales: {
+        x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
+        y: { grid: { display: false },
+             ticks: { callback: function(v){ const lbl=this.getLabelForValue(v)||''; return lbl.length>26?lbl.slice(0,24)+'…':lbl; } } }
+      },
+      layout: { padding: { top:8,right:8,bottom:8,left:8 } }
+    }
+  });
+})();
+</script>
 </body>
 </html>
