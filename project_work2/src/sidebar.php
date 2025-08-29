@@ -21,8 +21,6 @@ $role = $_SESSION['role'] ?? 'guest';
       <?php elseif ($role === 'procurement'): ?>
         <a class="nav-link<?php if($current=='index.php') echo ' active'; ?>" href="index.php"><i class="fas fa-tachometer-alt me-2"></i> แดชบอร์ด</a>
         <a class="nav-link<?php if($current=='borrowings.php') echo ' active'; ?>" href="borrowings.php"><i class="fas fa-exchange-alt me-2"></i> การยืม-คืน</a>
-        <a class="nav-link<?php if($current=='supplies.php') echo ' active'; ?>" href="supplies.php"><i class="fas fa-paperclip me-2"></i> วัสดุสำนักงาน</a>
-        <a class="nav-link<?php if($current=='dispensations.php') echo ' active'; ?>" href="dispensations.php"><i class="fas fa-dolly me-2"></i> การเบิกวัสดุ</a>
         <a class="nav-link<?php if($current=='user_guide.php') echo ' active'; ?>" href="user_guide.php"><i class="fas fa-book-open me-2"></i> คู่มือการใช้งาน</a>
         <a class="nav-link<?php if($current=='profile.php') echo ' active'; ?>" href="profile.php"><i class="fas fa-user-edit me-2"></i> แก้ไขโปรไฟล์</a>
         <a class="nav-link text-danger" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i> ออกจากระบบ</a>
@@ -30,8 +28,6 @@ $role = $_SESSION['role'] ?? 'guest';
       <?php else: /* admin */ ?>
         <a class="nav-link<?php if($current=='index.php') echo ' active'; ?>" href="index.php"><i class="fas fa-tachometer-alt me-2"></i> แดชบอร์ด</a>
         <a class="nav-link<?php if($current=='borrowings.php') echo ' active'; ?>" href="borrowings.php"><i class="fas fa-exchange-alt me-2"></i> การยืม-คืน</a>
-        <a class="nav-link<?php if($current=='supplies.php') echo ' active'; ?>" href="supplies.php"><i class="fas fa-paperclip me-2"></i> วัสดุสำนักงาน</a>
-        <a class="nav-link<?php if($current=='dispensations.php') echo ' active'; ?>" href="dispensations.php"><i class="fas fa-dolly me-2"></i> การเบิกวัสดุ</a>
         <a class="nav-link<?php if($current=='equipment_history.php') echo ' active'; ?>" href="equipment_history.php"><i class="fas fa-history me-2"></i> ประวัติการเคลื่อนไหว</a>
         <a class="nav-link<?php if($current=='reports.php') echo ' active'; ?>" href="reports.php"><i class="fas fa-chart-bar me-2"></i> รายงาน</a>
         <a class="nav-link<?php if($current=='items.php') echo ' active'; ?>" href="items.php"><i class="fas fa-box me-2"></i> จัดการครุภัณฑ์</a>
@@ -70,8 +66,6 @@ $role = $_SESSION['role'] ?? 'guest';
       <?php elseif ($role === 'procurement'): ?>
         <a class="nav-link<?php if($current=='index.php') echo ' active'; ?>" href="index.php"><i class="fas fa-tachometer-alt me-2"></i> แดชบอร์ด</a>
         <a class="nav-link<?php if($current=='borrowings.php') echo ' active'; ?>" href="borrowings.php"><i class="fas fa-exchange-alt me-2"></i> การยืม-คืน</a>
-        <a class="nav-link<?php if($current=='supplies.php') echo ' active'; ?>" href="supplies.php"><i class="fas fa-paperclip me-2"></i> วัสดุสำนักงาน</a>
-        <a class="nav-link<?php if($current=='dispensations.php') echo ' active'; ?>" href="dispensations.php"><i class="fas fa-dolly me-2"></i> การเบิกวัสดุ</a>
         <a class="nav-link<?php if($current=='user_guide.php') echo ' active'; ?>" href="user_guide.php"><i class="fas fa-book-open me-2"></i> คู่มือการใช้งาน</a>
         <a class="nav-link<?php if($current=='profile.php') echo ' active'; ?>" href="profile.php"><i class="fas fa-user-edit me-2"></i> แก้ไขโปรไฟล์</a>
         <a class="nav-link text-danger mt-auto" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i> ออกจากระบบ</a>
@@ -79,8 +73,6 @@ $role = $_SESSION['role'] ?? 'guest';
       <?php else: /* admin */ ?>
         <a class="nav-link<?php if($current=='index.php') echo ' active'; ?>" href="index.php"><i class="fas fa-tachometer-alt me-2"></i> แดชบอร์ด</a>
         <a class="nav-link<?php if($current=='borrowings.php') echo ' active'; ?>" href="borrowings.php"><i class="fas fa-exchange-alt me-2"></i> การยืม-คืน</a>
-        <a class="nav-link<?php if($current=='supplies.php') echo ' active'; ?>" href="supplies.php"><i class="fas fa-paperclip me-2"></i> วัสดุสำนักงาน</a>
-        <a class="nav-link<?php if($current=='dispensations.php') echo ' active'; ?>" href="dispensations.php"><i class="fas fa-dolly me-2"></i> การเบิกวัสดุ</a>
         <a class="nav-link<?php if($current=='equipment_history.php') echo ' active'; ?>" href="equipment_history.php"><i class="fas fa-history me-2"></i> ประวัติการเคลื่อนไหว</a>
         <a class="nav-link<?php if($current=='reports.php') echo ' active'; ?>" href="reports.php"><i class="fas fa-chart-bar me-2"></i> รายงาน</a>
         <a class="nav-link<?php if($current=='items.php') echo ' active'; ?>" href="items.php"><i class="fas fa-box me-2"></i> จัดการครุภัณฑ์</a>

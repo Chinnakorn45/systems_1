@@ -19,10 +19,7 @@ require_once 'db.php';
       border-radius: 12px;
       padding: 20px;
     }
-
-    .modal {
-      z-index: 1055;
-    }
+    .modal { z-index: 1055; }
   </style>
 </head>
 <body>
@@ -33,7 +30,7 @@ require_once 'db.php';
   <div id='calendar'></div>
 </div>
 
-<!-- ✅ Modal -->
+<!-- Modal -->
 <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -53,6 +50,7 @@ require_once 'db.php';
         <div class="mb-2">
           <label class="form-label">สถานะ</label>
           <input type="text" class="form-control" id="modalStatus" readonly>
+          <!-- ถ้าต้องการ badge สี ให้เพิ่ม div นี้แทน input: <div id="modalStatusBadge"></div> -->
         </div>
         <div class="mb-2">
           <label class="form-label">สถานที่ตั้ง</label>
@@ -72,6 +70,28 @@ require_once 'db.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  // แม็พสถานะ → ชื่อไทย + สี (รองรับกำลังซ่อมโดย IT)
+  const STATUS_MAP = {
+    received:               { th: 'รับเรื่อง',                         color: 'info' },
+    evaluate_it:            { th: 'ประเมิน (โดย IT)',                  color: 'warning' },
+    evaluate_repairable:    { th: 'ประเมิน: ซ่อมได้โดย IT',            color: 'success' },
+    in_progress:            { th: 'กำลังซ่อมโดย IT',                    color: 'primary' }, // ใหม่
+    evaluate_external:      { th: 'ประเมิน: ซ่อมไม่ได้ - ส่งซ่อมภายนอก', color: 'danger' },
+    evaluate_disposal:      { th: 'ประเมิน: อุปกรณ์ไม่คุ้มซ่อม/รอจำหน่าย', color: 'dark' },
+    external_repair:        { th: 'ซ่อมไม่ได้ - ส่งซ่อมภายนอก',        color: 'danger' },
+    procurement_managing:   { th: 'พัสดุจัดการส่งซ่อม',                 color: 'info' },
+    procurement_returned:   { th: 'พัสดุซ่อมเสร็จส่งคืน IT',            color: 'success' },
+    repair_completed:       { th: 'ซ่อมเสร็จ',                           color: 'success' },
+    waiting_delivery:       { th: 'รอส่งมอบ',                            color: 'warning' },
+    delivered:              { th: 'ส่งมอบ',                               color: 'success' },
+    cancelled:              { th: 'ยกเลิก',                               color: 'secondary' },
+    // legacy / fallback
+    pending:                { th: 'รอดำเนินการ',                          color: 'secondary' },
+    done:                   { th: 'ซ่อมเสร็จ',                             color: 'success' },
+    '':                     { th: 'รอดำเนินการ',                          color: 'secondary' },
+  };
+  const toThaiStatus = (code) => STATUS_MAP[code] || { th: (code || 'ไม่ระบุสถานะ'), color: 'secondary' };
+
   var calendarEl = document.getElementById('calendar');
   var calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
@@ -83,16 +103,25 @@ document.addEventListener('DOMContentLoaded', function () {
     },
     events: 'events.php',
     eventClick: function (info) {
-      // รับข้อมูลจาก extendedProps
-      document.getElementById('modalReporter').value = info.event.extendedProps.reporter;
-      document.getElementById('modalRef').value = info.event.extendedProps.repair_id;
-      document.getElementById('modalStatus').value = info.event.extendedProps.status;
-      // document.getElementById('modalType').value = info.event.extendedProps.type; // ลบประเภทของงานออก
-      document.getElementById('modalLocation').value = info.event.extendedProps.location;
+      // ดึงค่า
+      const reporter = info.event.extendedProps.reporter || '-';
+      const refId    = info.event.extendedProps.repair_id || info.event.id || '-';
+      const statusCd = (info.event.extendedProps.status || '').trim();
+      const location = info.event.extendedProps.location || '-';
 
-      // เปิด Modal
-      var modal = new bootstrap.Modal(document.getElementById('eventModal'));
-      modal.show();
+      // แปลงสถานะเป็นชื่อไทย
+      const { th: statusTh/*, color*/ } = toThaiStatus(statusCd);
+
+      // เติมลงโมดัล
+      document.getElementById('modalReporter').value = reporter;
+      document.getElementById('modalRef').value      = refId;
+      document.getElementById('modalStatus').value   = statusTh;
+      document.getElementById('modalLocation').value = location;
+
+      // ถ้าต้องการ badge สี แทน input:
+      // document.getElementById('modalStatusBadge').innerHTML = `<span class="badge bg-${color}">${statusTh}</span>`;
+
+      new bootstrap.Modal(document.getElementById('eventModal')).show();
     }
   });
   calendar.render();
@@ -100,4 +129,3 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 </body>
 </html>
- 

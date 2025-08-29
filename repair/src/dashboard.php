@@ -5,7 +5,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'proc
     header('Location: login.php'); exit;
 }
 
-// ===== สรุปจำนวนการแจ้งซ่อม (อ้างอิงสถานะล่าสุดจาก repair_logs) =====
+/* ===== ตัวเลขสรุป ===== */
 $total_repairs = $conn->query("SELECT COUNT(*) FROM repairs")->fetch_row()[0];
 
 $pending_repairs = $conn->query("
@@ -69,13 +69,13 @@ $cancelled_repairs = $conn->query("
 
 $done_percent = $total_repairs > 0 ? round(($done_repairs / $total_repairs) * 100, 1) : 0;
 
-// ===== จำนวนผู้ใช้งาน =====
+/* ===== ผู้ใช้งาน ===== */
 $total_users = $conn->query("SELECT COUNT(*) FROM users")->fetch_row()[0];
 $admin_users = $conn->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetch_row()[0];
 $procurement_users = $conn->query("SELECT COUNT(*) FROM users WHERE role='procurement'")->fetch_row()[0];
 $staff_users = $conn->query("SELECT COUNT(*) FROM users WHERE role='staff'")->fetch_row()[0];
 
-// ===== แจ้งซ่อมล่าสุด 5 รายการ (อิงสถานะล่าสุด) =====
+/* ===== ล่าสุด 5 รายการ ===== */
 $latest_repairs = [];
 $sql = "SELECT r.repair_id, r.created_at, r.asset_number, r.model_name, r.location_name,
                u_reported.full_name AS reporter, u_reported.department,
@@ -106,7 +106,7 @@ while ($row = $res->fetch_assoc()) {
     ];
 }
 
-// ===== รายการแจ้งใหม่ที่รอดำเนินการ (5 รายการ) =====
+/* ===== แจ้งใหม่ค้าง 5 รายการ ===== */
 $alerts = [];
 $sql_pending = "SELECT r.repair_id, r.model_name, r.asset_number, r.location_name, r.created_at,
                        u.full_name AS reporter, u.department
@@ -135,25 +135,31 @@ while ($row = $res_pending->fetch_assoc()) {
     ];
 }
 
-// ===== Top 5 (หมวดหมู่จริงถ้ามี items.category_id -> categories, ไม่มีก็ fallback เป็น brand) =====
+/* ===== Top 5 ===== */
 $top5_labels = [];
 $top5_counts = [];
 $top5_title  = 'Top 5 หมวดหมู่ที่ส่งซ่อมบ่อยสุด';
 
-// ตรวจสอบตาราง items และคอลัมน์ category_id
 $use_items_category = false;
 $has_items_table = $conn->query("SHOW TABLES LIKE 'items'");
 if ($has_items_table && $has_items_table->num_rows > 0) {
     $has_category_id_col = $conn->query("SHOW COLUMNS FROM items LIKE 'category_id'");
-    if ($has_category_id_col && $has_category_id_col->num_rows > 0) {
-        $use_items_category = true;
-    }
+    if ($has_category_id_col && $has_category_id_col->num_rows > 0) $use_items_category = true;
 }
-
+$latestStatusCTE = "
+    SELECT rl.repair_id, rl.status
+    FROM repair_logs rl
+    INNER JOIN (
+        SELECT repair_id, MAX(updated_at) AS max_ts
+        FROM repair_logs
+        GROUP BY repair_id
+    ) t ON rl.repair_id = t.repair_id AND rl.updated_at = t.max_ts
+";
 if ($use_items_category) {
     $sql_top5 = "
         SELECT COALESCE(c.category_name, 'ไม่ระบุ') AS cat_name, COUNT(*) AS total_cnt
         FROM repairs r
+        LEFT JOIN ($latestStatusCTE) latest ON latest.repair_id = r.repair_id
         LEFT JOIN items i ON i.item_id = r.item_id
         LEFT JOIN categories c ON c.category_id = i.category_id
         GROUP BY cat_name
@@ -165,7 +171,8 @@ if ($use_items_category) {
     $sql_top5 = "
         SELECT COALESCE(r.brand, 'ไม่ระบุ') AS cat_name, COUNT(*) AS total_cnt
         FROM repairs r
-        GROUP BY r.brand
+        LEFT JOIN ($latestStatusCTE) latest ON latest.repair_id = r.repair_id
+        GROUP BY cat_name
         ORDER BY total_cnt DESC
         LIMIT 5
     ";
@@ -179,7 +186,7 @@ if ($res_top5) {
     }
 }
 
-// ===== Helpers =====
+/* ===== helpers ===== */
 function status_badge($status) {
     $map = [
         'received' => ['รับเรื่อง', 'info'],
@@ -225,7 +232,6 @@ function thaidate($date, $format = 'j F Y') {
 <div class="container mt-5">
   <h2 class="mb-4"><i class="fas fa-tachometer-alt me-2"></i> Dashboard</h2>
 
-  <!-- แถวสรุปการ์ดตัวเลข -->
   <div class="row g-4 dashboard-section">
     <div class="col-md-4">
       <div class="dashboard-card p-4 bg-white">
@@ -263,9 +269,7 @@ function thaidate($date, $format = 'j F Y') {
     </div>
   </div>
 
-  <!-- แถวหลัก: ซ้าย = ล่าสุด + Top5 (ซ้อนกัน), ขวา = Alerts -->
   <div class="row g-4 mt-0">
-    <!-- ซ้าย -->
     <div class="col-lg-8 d-flex flex-column gap-4">
       <div class="dashboard-card p-4 bg-white">
         <div class="mb-3 fw-bold"><i class="fas fa-list me-2"></i> การแจ้งซ่อมล่าสุด</div>
@@ -290,7 +294,6 @@ function thaidate($date, $format = 'j F Y') {
         </table>
       </div>
 
-      <!-- Top 5 อยู่คอลัมน์ซ้ายเดียวกัน เพื่อไม่ให้โดนดัน -->
       <div class="dashboard-card p-4 bg-white">
         <div class="mb-3 fw-bold">
           <i class="fas fa-chart-bar me-2"></i> <?= htmlspecialchars($top5_title) ?>
@@ -299,7 +302,6 @@ function thaidate($date, $format = 'j F Y') {
       </div>
     </div>
 
-    <!-- ขวา -->
     <div class="col-lg-4">
       <div class="dashboard-card p-4 bg-white">
         <div class="mb-2 fw-bold text-warning"><i class="fas fa-exclamation-triangle me-2"></i> รายการแจ้งซ่อมใหม่ที่รอดำเนินการ</div>
@@ -323,6 +325,38 @@ function thaidate($date, $format = 'j F Y') {
   const el = document.getElementById('top5CategoriesChart'); if(!el) return;
   const ctx = el.getContext('2d');
 
+  const palette = [
+    [220, 53, 69], [255, 193, 7], [25, 135, 84], [13, 110, 253], [108, 117, 125],
+  ];
+  const bgColors = labels.map((_, i) => {
+    const [r,g,b] = palette[i % palette.length];
+    return `rgba(${r}, ${g}, ${b}, 0.25)`;
+  });
+  const borderColors = labels.map((_, i) => {
+    const [r,g,b] = palette[i % palette.length];
+    return `rgba(${r}, ${g}, ${b}, 1)`;
+  });
+
+  // ปลั๊กอินแสดงค่าบนปลายแท่ง
+  const valueLabelPlugin = {
+    id: 'valueLabel',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      const meta = chart.getDatasetMeta(0);
+      const ds = chart.data.datasets[0];
+      if (!meta || !ds) return;
+      ctx.save();
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#333';
+      meta.data.forEach((bar, i) => {
+        const val = ds.data?.[i];
+        if (val == null) return;
+        ctx.fillText(val, bar.x + 8, bar.y + 4);
+      });
+      ctx.restore();
+    }
+  };
+
   new Chart(ctx, {
     type: 'bar',
     data: {
@@ -330,8 +364,8 @@ function thaidate($date, $format = 'j F Y') {
       datasets: [{
         label: 'จำนวนแจ้งซ่อม',
         data,
-        backgroundColor: 'rgba(219, 0, 0, 0.25)',
-        borderColor: 'rgba(228, 137, 0, 1)',
+        backgroundColor: bgColors,
+        borderColor: borderColors,
         borderWidth: 1,
         borderRadius: 6,
         barThickness: 22,
@@ -342,17 +376,36 @@ function thaidate($date, $format = 'j F Y') {
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
+
+      // ให้ hover ติดแบบในภาพทุกแท่ง
+      interaction: { mode: 'index', axis: 'y', intersect: false },
+
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (ctx) => `  ${ctx.raw} ครั้ง` } }
+        tooltip: {
+          enabled: true,
+          displayColors: true,
+          callbacks: {
+            title: (items) => items?.[0]?.label ?? '',
+            label: (ctx) => `  ${ctx.parsed.x} ครั้ง`
+          }
+        }
       },
       scales: {
         x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
-        y: { grid: { display: false },
-             ticks: { callback: function(v){ const lbl=this.getLabelForValue(v)||''; return lbl.length>26?lbl.slice(0,24)+'…':lbl; } } }
+        y: {
+            grid: { display: false },
+            ticks: {
+              callback(v){
+                const lbl = this.getLabelForValue(v)||'';
+                return lbl.length>26?lbl.slice(0,24)+'…':lbl;
+              }
+            }
+        }
       },
-      layout: { padding: { top:8,right:8,bottom:8,left:8 } }
-    }
+      layout: { padding: { top:8, right:8, bottom:8, left:8 } }
+    },
+    plugins: [valueLabelPlugin]
   });
 })();
 </script>
