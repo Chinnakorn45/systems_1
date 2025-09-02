@@ -46,7 +46,6 @@ if (!function_exists('thaidate')) {
 
 // ---------- AuthZ ----------
 if (!isset($_SESSION["user_id"])) { header("location: login.php"); exit; }
-// อนุญาตเฉพาะแอดมินดูรายงาน (ปรับตามนโยบายคุณได้)
 // if (($_SESSION["role"] ?? '') !== 'admin') { header('Location: index.php'); exit; }
 
 $current_page = 'reports';
@@ -72,14 +71,15 @@ if ($date_from !== '') { $where .= " AND d.dispense_date >= ? "; $types .= "s"; 
 if ($date_to !== '')   { $where .= " AND d.dispense_date <= ? "; $types .= "s"; $params[] = $date_to; }
 if ($filter_supply>0)  { $where .= " AND d.supply_id = ? ";      $types .= "i"; $params[] = $filter_supply; }
 if ($filter_user>0)    { $where .= " AND d.user_id = ? ";        $types .= "i"; $params[] = $filter_user; }
-if ($q !== '')         { $where .= " AND (s.supply_name LIKE CONCAT('%',?,'%') OR d.notes LIKE CONCAT('%',?,'%')) ";
-                         $types .= "ss"; $params[] = $q; $params[] = $q; }
+if ($q !== '')         {
+  $where .= " AND (s.supply_name LIKE CONCAT('%',?,'%') OR d.notes LIKE CONCAT('%',?,'%')) ";
+  $types .= "ss"; $params[] = $q; $params[] = $q;
+}
 
 // ---------- Export CSV ----------
 if (isset($_GET['export']) && $_GET['export'] === 'csv') {
   header('Content-Type: text/csv; charset=UTF-8');
   header('Content-Disposition: attachment; filename="dispensations_report_' . $date_from . '_to_' . $date_to . '.csv"');
-  // UTF-8 BOM for Excel
   echo "\xEF\xBB\xBF";
   $sql = "SELECT d.dispense_date, s.supply_name, d.quantity_dispensed, COALESCE(u.full_name,u.username) AS fullname, d.notes
           FROM dispensations d
@@ -111,6 +111,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
 $summary = ['txn'=>0,'qty'=>0,'sup'=>0];
 $sql = "SELECT COUNT(*) AS txn, COALESCE(SUM(d.quantity_dispensed),0) AS qty, COUNT(DISTINCT d.supply_id) AS sup
         FROM dispensations d
+        LEFT JOIN office_supplies s ON s.supply_id = d.supply_id
         $where";
 $stmt = mysqli_prepare($link, $sql);
 if ($types !== "") mysqli_stmt_bind_param($stmt, $types, ...$params);
@@ -137,6 +138,7 @@ while ($r = mysqli_fetch_assoc($res)) { $top_labels[] = $r['supply_name']; $top_
 $daily_labels = []; $daily_values = [];
 $sql = "SELECT d.dispense_date AS dt, SUM(d.quantity_dispensed) AS total_qty
         FROM dispensations d
+        LEFT JOIN office_supplies s ON s.supply_id = d.supply_id
         $where
         GROUP BY d.dispense_date
         ORDER BY d.dispense_date ASC";
@@ -160,9 +162,7 @@ $stmt = mysqli_prepare($link, $sql);
 if ($types !== "") mysqli_stmt_bind_param($stmt, $types, ...$params);
 mysqli_stmt_execute($stmt);
 $res = mysqli_stmt_get_result($stmt);
-while ($r = mysqli_fetch_assoc($res)) {
-  $rows[] = $r;
-}
+while ($r = mysqli_fetch_assoc($res)) { $rows[] = $r; }
 ?>
 <!DOCTYPE html>
 <html lang="th">
