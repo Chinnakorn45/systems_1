@@ -10,7 +10,40 @@ if ($_SESSION["role"] === 'staff') {
     exit;
 }
 
-// ---------- สรุปสถานะครุภัณฑ์ (ปลอดภัยค่าว่าง) ----------
+/* ===== Charset/Collation (กัน mix collation) ===== */
+mysqli_set_charset($link, 'utf8mb4');
+mysqli_query($link, "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+mysqli_query($link, "SET collation_connection = 'utf8mb4_unicode_ci'");
+
+/* ===== Helpers ===== */
+if (!function_exists('safe_number')) {
+  function safe_number($v, $dec = 0) {
+      if (!is_numeric($v)) $v = 0;
+      return number_format((float)$v, $dec);
+  }
+}
+if (!function_exists('get_movement_type_text')) {
+  function get_movement_type_text($type){
+    $m = [
+      'borrow'=>'การยืม','return'=>'การคืน','transfer'=>'การโอนย้าย',
+      'maintenance'=>'การซ่อมบำรุง','disposal'=>'การจำหน่าย',
+      'purchase'=>'การจัดซื้อ','adjustment'=>'การปรับปรุง',
+      'ownership_transfer'=>'โอนสิทธิ'
+    ];
+    return $m[$type] ?? $type;
+  }
+}
+if (!function_exists('get_movement_type_badge')) {
+  function get_movement_type_badge($type){
+    $b=['borrow'=>'bg-primary','return'=>'bg-success','transfer'=>'bg-info',
+        'maintenance'=>'bg-warning','disposal'=>'bg-danger',
+        'purchase'=>'bg-secondary','adjustment'=>'bg-dark','ownership_transfer'=>'bg-secondary'];
+    $cls=$b[$type] ?? 'bg-secondary';
+    return '<span class="badge '.$cls.'">'.get_movement_type_text($type).'</span>';
+  }
+}
+
+/* ===== สรุปสถานะครุภัณฑ์ ===== */
 $equipment_stats = ['total_items'=>0,'total_quantity'=>0,'borrowed_quantity'=>0,'available_quantity'=>0];
 
 $sql_stats = "SELECT COUNT(*) as total_items, COALESCE(SUM(total_quantity),0) as total_quantity FROM items";
@@ -26,14 +59,14 @@ if ($res = mysqli_query($link, $sql_borrowed)) {
 }
 $equipment_stats['available_quantity'] = max(0, ((int)$equipment_stats['total_quantity']) - ((int)$equipment_stats['borrowed_quantity']));
 
-// ---------- กราฟ: สถานะการยืม ----------
+/* ===== กราฟ: สถานะการยืม ===== */
 $status_chart_data = [];
 $sql_status_chart = "SELECT status, COUNT(*) as count FROM borrowings GROUP BY status";
 if ($res = mysqli_query($link, $sql_status_chart)) {
     while ($row = mysqli_fetch_assoc($res)) $status_chart_data[] = $row;
 }
 
-// ---------- กราฟ: การยืมตามเดือน (12 เดือนล่าสุด) ----------
+/* ===== กราฟ: ยืมตามเดือน (12 เดือนล่าสุด) ===== */
 $monthly_chart_data = [];
 $sql_monthly_chart = "SELECT DATE_FORMAT(borrow_date, '%Y-%m') as month, COUNT(*) as borrow_count
                       FROM borrowings
@@ -43,7 +76,7 @@ if ($res = mysqli_query($link, $sql_monthly_chart)) {
     while ($row = mysqli_fetch_assoc($res)) $monthly_chart_data[] = $row;
 }
 
-// ---------- กราฟ: มูลค่าตามปีงบประมาณ ----------
+/* ===== กราฟ: มูลค่าตามปีงบประมาณ ===== */
 $budget_chart_data = [];
 $sql_budget_chart = "SELECT budget_year, SUM(total_price) as total_value
                      FROM items
@@ -54,7 +87,7 @@ if ($res = mysqli_query($link, $sql_budget_chart)) {
     while ($row = mysqli_fetch_assoc($res)) $budget_chart_data[] = $row;
 }
 
-// ---------- ตาราง: การยืม-คืน 10 ล่าสุด ----------
+/* ===== ตาราง: การยืม-คืน 10 ล่าสุด ===== */
 $sql_borrowings = "SELECT b.*, i.model_name, i.item_number, u.full_name
                    FROM borrowings b
                    LEFT JOIN items i ON b.item_id = i.item_id
@@ -62,15 +95,77 @@ $sql_borrowings = "SELECT b.*, i.model_name, i.item_number, u.full_name
                    ORDER BY b.borrow_date DESC LIMIT 10";
 $result_borrowings = mysqli_query($link, $sql_borrowings);
 
-// ---------- ตาราง: การเคลื่อนไหว 10 ล่าสุด ----------
-$sql_movements = "SELECT m.*, i.model_name, i.item_number, u.full_name
-                  FROM equipment_movements m
-                  LEFT JOIN items i ON m.item_id = i.item_id
-                  LEFT JOIN users u ON m.created_by = u.user_id
-                  ORDER BY m.movement_date DESC LIMIT 10";
-$result_movements = mysqli_query($link, $sql_movements);
+/* =================================================================
+   ตาราง: การเคลื่อนไหว 10 ล่าสุด (แบบหน้าตัวอย่าง)
+   - รวม equipment_movements + equipment_history (โอนสิทธิ)
+================================================================= */
+$sub_movements = "
+  SELECT
+    m.movement_date,
+    CAST(m.movement_type AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS movement_type,
+    m.item_id,
+    m.quantity,
+    m.from_user_id,
+    m.to_user_id,
+    CONVERT(m.from_location USING utf8mb4) COLLATE utf8mb4_unicode_ci AS from_location,
+    CONVERT(m.to_location   USING utf8mb4) COLLATE utf8mb4_unicode_ci AS to_location,
+    CONVERT(m.notes        USING utf8mb4) COLLATE utf8mb4_unicode_ci AS notes,
+    m.created_by,
+    CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS from_user_name_r,
+    CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS to_user_name_r,
+    CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS from_user_dept_r,
+    CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS to_user_dept_r
+  FROM equipment_movements m
+";
 
-// ---------- ตาราง: มูลค่าครุภัณฑ์ตามหมวด ----------
+$sub_history = "
+  SELECT
+    h.change_date AS movement_date,
+    CAST('ownership_transfer' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS movement_type,
+    h.item_id,
+    1 AS quantity,
+    CASE WHEN h.old_value REGEXP '^[0-9]+$' THEN CAST(h.old_value AS UNSIGNED) ELSE NULL END AS from_user_id,
+    CASE WHEN h.new_value REGEXP '^[0-9]+$' THEN CAST(h.new_value AS UNSIGNED) ELSE NULL END AS to_user_id,
+    CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS from_location,
+    CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS to_location,
+    CONVERT(h.remarks USING utf8mb4) COLLATE utf8mb4_unicode_ci AS notes,
+    h.changed_by AS created_by,
+    CONVERT(COALESCE(uo_id.full_name, uo_name.full_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS from_user_name_r,
+    CONVERT(COALESCE(un_id.full_name, un_name.full_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS to_user_name_r,
+    CONVERT(COALESCE(uo_id.department, uo_name.department) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS from_user_dept_r,
+    CONVERT(COALESCE(un_id.department, un_name.department) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS to_user_dept_r
+  FROM equipment_history h
+  LEFT JOIN users uo_id  ON (h.old_value REGEXP '^[0-9]+$' AND uo_id.user_id = CAST(h.old_value AS UNSIGNED))
+  LEFT JOIN users un_id  ON (h.new_value REGEXP '^[0-9]+$' AND un_id.user_id = CAST(h.new_value AS UNSIGNED))
+  LEFT JOIN users uo_name ON (NOT h.old_value REGEXP '^[0-9]+$' AND uo_name.full_name COLLATE utf8mb4_unicode_ci = h.old_value COLLATE utf8mb4_unicode_ci)
+  LEFT JOIN users un_name ON (NOT h.new_value REGEXP '^[0-9]+$' AND un_name.full_name COLLATE utf8mb4_unicode_ci = h.new_value COLLATE utf8mb4_unicode_ci)
+  WHERE h.action_type = 'transfer_ownership'
+";
+
+$base_union = "($sub_movements UNION ALL $sub_history) AS mv";
+
+$sql_movements_latest = "
+  SELECT
+    mv.movement_date, mv.movement_type, mv.item_id, mv.quantity,
+    mv.from_user_id, mv.to_user_id, mv.from_location, mv.to_location, mv.notes, mv.created_by,
+    i.item_number, i.model_name, i.brand,
+    COALESCE(uf.full_name, mv.from_user_name_r)  AS from_user_name,
+    COALESCE(ut.full_name, mv.to_user_name_r)    AS to_user_name,
+    COALESCE(uf.department, mv.from_user_dept_r) AS from_user_department,
+    COALESCE(ut.department, mv.to_user_dept_r)   AS to_user_department,
+    uc.full_name AS created_by_name,
+    uc.department AS created_by_department
+  FROM $base_union
+  LEFT JOIN items i ON i.item_id = mv.item_id
+  LEFT JOIN users uf ON uf.user_id = mv.from_user_id
+  LEFT JOIN users ut ON ut.user_id = mv.to_user_id
+  LEFT JOIN users uc ON uc.user_id = mv.created_by
+  ORDER BY mv.movement_date DESC
+  LIMIT 10
+";
+$result_movements = mysqli_query($link, $sql_movements_latest);
+
+/* ===== ตาราง: มูลค่าครุภัณฑ์ตามหมวด ===== */
 $sql_category_value = "SELECT c.category_name,
                               COALESCE(SUM(i.total_price),0) as category_value,
                               COUNT(i.item_id) as item_count
@@ -79,12 +174,6 @@ $sql_category_value = "SELECT c.category_name,
                        GROUP BY c.category_id
                        ORDER BY category_value DESC";
 $result_category_value = mysqli_query($link, $sql_category_value);
-
-// Helper ปลอดภัยต่อ null
-function safe_number($v, $dec = 0) {
-    if (!is_numeric($v)) $v = 0;
-    return number_format((float)$v, $dec);
-}
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -109,14 +198,8 @@ function safe_number($v, $dec = 0) {
     .btn-primary{background:#2e7d32;border-color:#2e7d32}
     .btn-primary:hover{background:#256b29;border-color:#256b29}
 
-    /* สถิติการ์ด */
-    .stats-card{
-        background:#fff;border:1px solid #e3eee5;border-radius:16px;padding:16px;
-        box-shadow:0 6px 16px rgba(0,0,0,.04)
-    }
-    .stats-icon{
-        width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff
-    }
+    .stats-card{background:#fff;border:1px solid #e3eee5;border-radius:16px;padding:16px;box-shadow:0 6px 16px rgba(0,0,0,.04)}
+    .stats-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff}
     .bg-primary-gradient{background:linear-gradient(135deg,#4dabf7,#1971c2)}
     .bg-success-gradient{background:linear-gradient(135deg,#51cf66,#2b8a3e)}
     .bg-warning-gradient{background:linear-gradient(135deg,#fcc419,#e67700)}
@@ -125,20 +208,12 @@ function safe_number($v, $dec = 0) {
     .section-title{color:#1b5e20}
     .card{border-radius:14px}
     .chart-container{position:relative}
-    .badge-soft{
-        background:#eef8ef;border:1px solid #d6edd9;color:#2e7d32;border-radius:999px;padding:.25rem .6rem;font-size:.85rem
-    }
-
-    /* ตาราง */
+    .badge-soft{background:#eef8ef;border:1px solid #d6edd9;color:#2e7d32;border-radius:999px;padding:.25rem .6rem;font-size:.85rem}
     .table thead th{background:#f1f6f2}
     .table tbody tr:hover{background:#fbfffc}
     .empty-state{padding:24px;border:1px dashed #cfe6d1;border-radius:12px;background:#f7fbf8;color:#5b7163}
-
-    /* ปุ่มพิมพ์ */
     .modal-header{background:#2e7d32;color:#fff}
     .modal-header .btn-close{filter:invert(1)}
-
-    /* ฟุตเตอร์ */
     footer{background:#ffffff;border-top:1px solid #e9ecef}
 </style>
 </head>
@@ -156,7 +231,7 @@ function safe_number($v, $dec = 0) {
 
 <div class="container-fluid">
   <div class="row">
-    <!-- Sidebar (Desktop & Offcanvas Mobile) -->
+    <!-- Sidebar -->
     <?php include 'sidebar.php'; ?>
 
     <!-- Main -->
@@ -166,7 +241,9 @@ function safe_number($v, $dec = 0) {
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
           <h2 class="mb-0"><i class="fas fa-chart-bar me-2"></i> รายงานและสรุปภาพรวม</h2>
           <div class="d-flex align-items-center gap-2">
-            <span class="badge-soft"><i class="fa-regular fa-clock me-1"></i>อัปเดตล่าสุด: <?php echo date('d/m/Y'); ?></span>
+            <span class="badge-soft"><i class="fa-regular fa-clock me-1"></i>
+              อัปเดตล่าสุด: <?php echo thaidate('j M Y', 'now'); ?>
+            </span>
             <button class="btn btn-primary" id="btnPrintReport"><i class="fas fa-print me-1"></i> พิมพ์รายงาน</button>
           </div>
         </div>
@@ -299,12 +376,12 @@ function safe_number($v, $dec = 0) {
                       while ($row = mysqli_fetch_assoc($result_borrowings)):
                     ?>
                       <tr>
-                        <td><?php echo $row['borrow_date'] ? date('d/m/Y', strtotime($row['borrow_date'])) : '-'; ?></td>
+                        <td><?php echo $row['borrow_date'] ? thaidate('j M Y', $row['borrow_date']) : '-'; ?></td>
                         <td><?php echo htmlspecialchars($row['full_name'] ?? '-'); ?></td>
                         <td><?php echo htmlspecialchars($row['model_name'] ?? '-'); ?></td>
                         <td><?php echo htmlspecialchars($row['item_number'] ?? '-'); ?></td>
                         <td class="text-center"><?php echo safe_number($row['quantity_borrowed']); ?></td>
-                        <td><?php echo !empty($row['return_date']) ? date('d/m/Y', strtotime($row['return_date'])) : '-'; ?></td>
+                        <td><?php echo !empty($row['return_date']) ? thaidate('j M Y', $row['return_date']) : '-'; ?></td>
                         <td><?php echo $status_labels[$row['status']] ?? htmlspecialchars($row['status'] ?? '-'); ?></td>
                       </tr>
                     <?php endwhile; ?>
@@ -322,31 +399,61 @@ function safe_number($v, $dec = 0) {
         <div id="report-movements">
           <h5 class="section-title mb-3"><i class="fas fa-route me-2 text-success"></i> รายงานการเคลื่อนไหว (ล่าสุด)</h5>
           <div class="card shadow-sm mb-4">
-            <div class="card-body">
+            <div class="card-body p-0">
               <?php if ($result_movements && mysqli_num_rows($result_movements) > 0): ?>
                 <div class="table-responsive">
-                  <table class="table table-bordered table-hover align-middle">
+                  <table class="table table-bordered table-hover align-middle mb-0">
                     <thead>
                       <tr>
                         <th>วันที่</th>
+                        <th>ประเภท</th>
                         <th>ครุภัณฑ์</th>
-                        <th>เลขครุภัณฑ์</th>
-                        <th>จาก</th>
-                        <th>ไปยัง</th>
-                        <th>ผู้ดำเนินการ</th>
+                        <th class="text-center">จำนวน</th>
+                        <th>จาก (ผู้ใช้/แผนก/สถานที่)</th>
+                        <th>ไปยัง (ผู้ใช้/แผนก/สถานที่)</th>
                         <th>หมายเหตุ</th>
+                        <th>ผู้บันทึก (แผนก)</th>
                       </tr>
                     </thead>
                     <tbody>
                       <?php while ($row = mysqli_fetch_assoc($result_movements)): ?>
                       <tr>
-                        <td><?php echo $row['movement_date'] ? date('d/m/Y H:i', strtotime($row['movement_date'])) : '-'; ?></td>
-                        <td><?php echo htmlspecialchars($row['model_name'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['item_number'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['from_location'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['to_location'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['full_name'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['notes'] ?? ''); ?></td>
+                        <td><?php echo $row['movement_date'] ? thaidate('j M Y H:i', $row['movement_date']) : '-'; ?></td>
+                        <td><?php echo get_movement_type_badge($row['movement_type']); ?></td>
+                        <td>
+                          <strong><?php echo htmlspecialchars($row['item_number'] ?? ''); ?></strong><br>
+                          <small class="text-muted"><?php echo htmlspecialchars(trim(($row['model_name'] ?? '').' - '.($row['brand'] ?? ''), ' -')); ?></small>
+                        </td>
+                        <td class="text-center"><?php echo (int)($row['quantity'] ?? 0); ?></td>
+                        <td>
+                          <?php if (!empty($row['from_location'])): ?>
+                            <i class="fas fa-map-marker-alt text-danger"></i> <?php echo htmlspecialchars($row['from_location']); ?><br>
+                          <?php endif; ?>
+                          <?php if (!empty($row['from_user_name'])): ?>
+                            <i class="fas fa-user text-primary"></i> <strong><?php echo htmlspecialchars($row['from_user_name']); ?></strong>
+                            <?php if (!empty($row['from_user_department'])): ?>
+                              <br><small class="text-muted"><i class="fas fa-building"></i> <?php echo htmlspecialchars($row['from_user_department']); ?></small>
+                            <?php endif; ?>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if (!empty($row['to_location'])): ?>
+                            <i class="fas fa-map-marker-alt text-success"></i> <?php echo htmlspecialchars($row['to_location']); ?><br>
+                          <?php endif; ?>
+                          <?php if (!empty($row['to_user_name'])): ?>
+                            <i class="fas fa-user text-success"></i> <strong><?php echo htmlspecialchars($row['to_user_name']); ?></strong>
+                            <?php if (!empty($row['to_user_department'])): ?>
+                              <br><small class="text-muted"><i class="fas fa-building"></i> <?php echo htmlspecialchars($row['to_user_department']); ?></small>
+                            <?php endif; ?>
+                          <?php endif; ?>
+                        </td>
+                        <td><?php echo $row['notes'] ? '<span class="text-muted">'.htmlspecialchars($row['notes']).'</span>' : '<span class="text-muted">-</span>'; ?></td>
+                        <td>
+                          <strong><?php echo htmlspecialchars($row['created_by_name'] ?? ''); ?></strong>
+                          <?php if (!empty($row['created_by_department'])): ?>
+                            <br><small class="text-muted"><i class="fas fa-building"></i> <?php echo htmlspecialchars($row['created_by_department']); ?></small>
+                          <?php endif; ?>
+                        </td>
                       </tr>
                       <?php endwhile; ?>
                     </tbody>
@@ -463,7 +570,7 @@ function safe_number($v, $dec = 0) {
     bootstrap.Modal.getInstance(document.getElementById('printReportModal'))?.hide();
   });
 
-  // กราฟ: แปลง label สถานะให้เป็นภาษาไทย (แสดง), แต่ข้อมูลใช้ค่าเดิม
+  // กราฟ: สถานะการยืม-คืน
   const statusData = <?php echo json_encode($status_chart_data, JSON_UNESCAPED_UNICODE); ?>;
   if (statusData && statusData.length && document.getElementById('statusChart')) {
     const mapTH = {
@@ -483,13 +590,13 @@ function safe_number($v, $dec = 0) {
     });
   }
 
-  // กราฟรายเดือน: แปลง YYYY-MM -> MM/YY แบบไทยสั้นๆ
+  // กราฟรายเดือน (label MM/YY โดย YY = พ.ศ. สองหลัก)
   const monthly = <?php echo json_encode($monthly_chart_data, JSON_UNESCAPED_UNICODE); ?>;
   if (monthly && monthly.length && document.getElementById('monthlyChart')) {
     const labels = monthly.map(r=>{
       const [y,m] = (r.month||'').split('-');
       if (!y || !m) return r.month;
-      const yy = String(y).slice(-2);
+      const yy = String(Number(y) + 543).slice(-2);
       return `${m}/${yy}`;
     });
     const vals = monthly.map(r => Number(r.borrow_count)||0);

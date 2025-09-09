@@ -1,5 +1,5 @@
 <?php
-// transfer_assets.php — full_name ทุกจุด + แก้ collation + ตารางเลื่อนแบบ 80vh + ค้นหา
+// transfer_assets.php — full_name ทุกจุด + แก้ collation + ตารางเลื่อนแบบ 80vh + ค้นหา (Select2)
 require_once 'config.php';
 if (!isset($_SESSION)) session_start();
 
@@ -137,6 +137,21 @@ $rsHis = mysqli_query($link, $sqlHis);
   <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="sidebar.css">
   <link rel="stylesheet" href="common-ui.css">
+  <!-- Select2 (ค้นหาใน select) -->
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <style>
+    /* ให้ select2 เต็มความกว้างและกลืนกับ Bootstrap */
+    .select2-container { width: 100% !important; }
+    .select2-container--default .select2-selection--single {
+      height: calc(2.5rem); padding: .375rem .5rem; border: 1px solid #ced4da; border-radius: .375rem;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      line-height: 1.6; padding-left: 0;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 100%;
+    }
+  </style>
 </head>
 <body>
 <nav class="navbar navbar-light bg-white d-md-none shadow-sm sticky-top">
@@ -231,10 +246,10 @@ $rsHis = mysqli_query($link, $sqlHis);
           </div>
         </div>
 
-        <!-- ตารางประวัติ: เลื่อนเฉพาะตาราง เหมือนหน้า users -->
+        <!-- ตารางประวัติ: เลื่อนเฉพาะตาราง 80vh -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 50vh; overflow-y: auto;">
+            <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
               <table id="historyTable" class="table table-bordered table-hover align-middle mb-0">
                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                   <tr>
@@ -273,37 +288,61 @@ $rsHis = mysqli_query($link, $sqlHis);
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- jQuery + Select2 สำหรับค้นหาใน select -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const itemSel   = document.getElementById('item_id');
   const ownerText = document.getElementById('currentOwnerText');
   const newOwner  = document.getElementById('new_owner_id');
 
+  // เปิดค้นหาบน select
+  $(itemSel).select2({ width: '100%', placeholder: '— เลือกครุภัณฑ์ —' });
+  $(newOwner).select2({ width: '100%', placeholder: '— เลือกผู้ถือสิทธิใหม่ —' });
+
+  function refreshNewOwnerDisabled(curId) {
+    // เปิดทุก option ก่อน
+    Array.from(newOwner.options).forEach(o => { o.disabled = false; });
+    // ปิด option ที่เป็นเจ้าของปัจจุบัน
+    if (curId && Number(curId) > 0) {
+      Array.from(newOwner.options).forEach(o => {
+        if (o.value && Number(o.value) === Number(curId)) {
+          o.disabled = true;
+        }
+      });
+      // ถ้าค่าเลือกอยู่ = เจ้าของเดิม ให้เคลียร์ค่า
+      if (newOwner.value && Number(newOwner.value) === Number(curId)) {
+        newOwner.value = '';
+      }
+    }
+    // แจ้ง Select2 ให้รีเฟรชสถานะ disabled
+    $(newOwner).trigger('change.select2');
+  }
+
   function updateOwnerInfo() {
     const opt = itemSel.options[itemSel.selectedIndex];
     if (!opt || !opt.value) {
       ownerText.textContent = '—';
-      Array.from(newOwner.options).forEach(o => o.disabled = false);
+      refreshNewOwnerDisabled(null);
       return;
     }
     const curId   = opt.getAttribute('data-owner-id');
     const curName = opt.getAttribute('data-owner-name') || 'ยังไม่มีผู้ถือสิทธิ';
     ownerText.textContent = curName;
-
-    Array.from(newOwner.options).forEach(o => { o.disabled = false; });
-    if (curId && Number(curId) > 0) {
-      Array.from(newOwner.options).forEach(o => {
-        if (o.value && Number(o.value) === Number(curId)) {
-          o.disabled = true;
-          if (newOwner.value === o.value) newOwner.value = '';
-        }
-      });
-    }
+    refreshNewOwnerDisabled(curId);
   }
+
+  // เมื่อเปลี่ยนรายการครุภัณฑ์
   itemSel.addEventListener('change', updateOwnerInfo);
+  // รองรับกรณีเปลี่ยนผ่าน Select2
+  $(itemSel).on('select2:select', updateOwnerInfo);
+  // init ครั้งแรก
   updateOwnerInfo();
 
-  // ค้นหาประวัติแบบหน้านั้น
+  // ค้นหาประวัติแบบบนหน้านั้น
   const searchInput = document.getElementById('historySearch');
   const rows = () => document.querySelectorAll('#historyTable tbody tr');
   if (searchInput) {

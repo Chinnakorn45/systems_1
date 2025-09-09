@@ -41,6 +41,7 @@ $is_edit = false;
 $model_id = '';
 $brand_name_display = ''; // เพิ่มตัวแปรสำหรับแสดงยี่ห้อในฟอร์ม
 $brand = ''; // ต้องมีตัวแปร $brand สำหรับบันทึกลง DB
+$is_disposed = 0; // 0=ยังไม่จำหน่าย, 1=จำหน่าย(ส่งคืนพัสดุ)
 
 // ถ้าเป็นการแก้ไข ดึงข้อมูลเดิมมาแสดง
 if ($item_id > 0) {
@@ -71,6 +72,8 @@ if ($item_id > 0) {
             $image = isset($row['image']) ? $row['image'] : '';
             $note = isset($row['note']) ? $row['note'] : '';
             $model_id = isset($row['model_id']) ? $row['model_id'] : '';
+            $is_disposed = isset($row['is_disposed']) ? (int)$row['is_disposed'] : 0;
+
             // load additional images from item_images (if table exists)
             $images = [];
             $sql_imgs = "SELECT image_id, image_path, is_primary, sort_order, uploaded_at FROM item_images WHERE item_id = ? ORDER BY sort_order, uploaded_at";
@@ -142,6 +145,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $price_per_unit = trim($_POST['price_per_unit']);
     // $total_price = trim($_POST['total_price']); // ค่านี้จะถูกคำนวณจาก JS แต่เราจะคำนวณซ้ำเพื่อความแม่นยำ
 
+    // เพิ่มสถานะจำหน่ายจากฟอร์ม
+    $is_disposed = isset($_POST['is_disposed']) ? 1 : 0;
+
     // Validate
     if (empty($serial_number)) $serial_number_err = "กรุณากรอกซีเรียลนัมเบอร์";
     if ($model_id <= 0) $model_id_err = "กรุณาเลือกชื่อรุ่น"; // ตรวจสอบ model_id
@@ -161,8 +167,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $serial_number_err = "Serial Number ต้องประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมาย - _ . เท่านั้น";
     }
     if (!empty($item_number) && !preg_match('/^[\p{L}\p{N}\-_.\/\s]+$/u', $item_number)) {
-    $item_number_err = "เลขครุภัณฑ์ต้องเป็นตัวอักษร/ตัวเลข และเครื่องหมาย - _ . / ได้เท่านั้น";
-}
+        $item_number_err = "เลขครุภัณฑ์ต้องเป็นตัวอักษร/ตัวเลข และเครื่องหมาย - _ . / ได้เท่านั้น";
+    }
     // คำนวณราคารวมอีกครั้งเพื่อความถูกต้องใน DB
     $total_price = $total_quantity * $price_per_unit; 
 
@@ -292,9 +298,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (empty($serial_number_err) && empty($item_number_err) && empty($brand_err) && empty($category_id_err) && empty($total_quantity_err) && empty($budget_year_err) && empty($price_per_unit_err) && empty($image_err) && empty($model_id_err)) {
         
         if ($is_edit) {
-            $sql = "UPDATE items SET model_name=?, item_number=?, serial_number=?, brand=?, description=?, note=?, category_id=?, total_quantity=?, image=?, location=?, purchase_date=?, budget_year=?, price_per_unit=?, total_price=? WHERE item_id=?";
+            $sql = "UPDATE items 
+                    SET model_name=?, item_number=?, serial_number=?, brand=?, description=?, note=?, 
+                        category_id=?, total_quantity=?, image=?, location=?, purchase_date=?, budget_year=?, 
+                        price_per_unit=?, total_price=?, is_disposed=? 
+                    WHERE item_id=?";
             if ($stmt = mysqli_prepare($link, $sql)) {
-                mysqli_stmt_bind_param($stmt, "ssssssiissssddi", $model_name, $item_number, $serial_number, $brand, $description, $note, $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year, $price_per_unit, $total_price, $item_id);
+                mysqli_stmt_bind_param(
+                    $stmt,
+                    "ssssssiissssddii",
+                    $model_name, $item_number, $serial_number, $brand, $description, $note,
+                    $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year,
+                    $price_per_unit, $total_price, $is_disposed, $item_id
+                );
                 if (mysqli_stmt_execute($stmt)) {
                     // Success
                     // if new uploaded images exist, insert them into item_images
@@ -325,9 +341,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 echo "<script>alert('เกิดข้อผิดพลาดในการเตรียมการอัปเดตข้อมูล');</script>";
             }
         } else {
-            $sql = "INSERT INTO items (model_name, item_number, serial_number, brand, description, note, category_id, total_quantity, image, location, purchase_date, budget_year, price_per_unit, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO items (model_name, item_number, serial_number, brand, description, note, category_id, total_quantity, image, location, purchase_date, budget_year, price_per_unit, total_price, is_disposed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             if ($stmt = mysqli_prepare($link, $sql)) {
-                mysqli_stmt_bind_param($stmt, "ssssssissssssd", $model_name, $item_number, $serial_number, $brand, $description, $note, $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year, $price_per_unit, $total_price);
+                mysqli_stmt_bind_param(
+                    $stmt,
+                    "ssssssiissssddi",
+                    $model_name, $item_number, $serial_number, $brand, $description, $note,
+                    $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year,
+                    $price_per_unit, $total_price, $is_disposed
+                );
                 if (mysqli_stmt_execute($stmt)) {
                     // Success - get inserted id
                     $new_item_id = mysqli_insert_id($link);
@@ -581,6 +603,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     <small class="form-text text-muted">คำนวณอัตโนมัติจาก จำนวน × ราคาต่อหน่วย</small>
                 </div>
             </div>
+
+            <!-- ช่องติ๊กสถานะจำหน่าย(ส่งคืนพัสดุ) -->
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="is_disposed" name="is_disposed" <?php echo $is_disposed ? 'checked' : ''; ?>>
+                <label class="form-check-label" for="is_disposed">
+                    จำหน่าย (ส่งคืนพัสดุ)
+                </label>
+            </div>
+
             <div class="mb-3">
                 <label for="location" class="form-label">ตำแหน่งที่ติดตั้ง</label>
                 <input type="text" class="form-control" id="location" name="location" value="<?php echo htmlspecialchars($location); ?>">
