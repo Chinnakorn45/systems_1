@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: transfer_assets.php'); exit;
     }
 
-    // อนุญาตเฉพาะ staff/procurement
+    // ตรวจสอบบทบาทของผู้รับสิทธิ
     $new_role = null;
     $stmtRole = mysqli_prepare($link, "SELECT role FROM users WHERE user_id = ?");
     mysqli_stmt_bind_param($stmtRole, "i", $new_owner_id);
@@ -33,8 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     mysqli_stmt_fetch($stmtRole);
     mysqli_stmt_close($stmtRole);
 
-    if (!in_array($new_role, ['staff','procurement'], true)) {
-        $_SESSION['error_message'] = 'อนุญาตให้โอนสิทธิให้เฉพาะผู้ใช้บทบาท เจ้าหน้าที่ หรือ เจ้าหน้าที่พัสดุ เท่านั้น';
+    if (!in_array($new_role, ['staff','procurement','admin'], true)) {
+        $_SESSION['error_message'] = 'อนุญาตให้โอนสิทธิให้เฉพาะผู้ใช้ที่มีบทบาทที่กำหนด';
         header('Location: transfer_assets.php'); exit;
     }
 
@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_execute($stmtUpd);
         mysqli_stmt_close($stmtUpd);
 
-        // บันทึกประวัติ (เก็บเป็น user_id)
+        // บันทึกประวัติ
         $stmtHis = mysqli_prepare($link, "INSERT INTO equipment_history
             (item_id, action_type, old_value, new_value, changed_by, remarks)
             VALUES (?, 'transfer_ownership', ?, ?, ?, ?)");
@@ -95,12 +95,12 @@ $rsItems = mysqli_query($link, $sqlItems);
 $sqlUsers = "
     SELECT user_id, full_name, department
     FROM users
-    WHERE role IN ('staff','procurement')
+    WHERE role IN ('staff','procurement','admin')
     ORDER BY (full_name IS NULL) ASC, (full_name='') ASC, full_name ASC, user_id ASC
 ";
 $rsUsers = mysqli_query($link, $sqlUsers);
 
-/* History: map -> full_name; fix collation compare */
+/* History */
 $sqlHis = "
     SELECT
       h.history_id, h.item_id, h.action_type, h.old_value, h.new_value,
@@ -137,10 +137,9 @@ $rsHis = mysqli_query($link, $sqlHis);
   <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="sidebar.css">
   <link rel="stylesheet" href="common-ui.css">
-  <!-- Select2 (ค้นหาใน select) -->
+  <!-- Select2 -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <style>
-    /* ให้ select2 เต็มความกว้างและกลืนกับ Bootstrap */
     .select2-container { width: 100% !important; }
     .select2-container--default .select2-selection--single {
       height: calc(2.5rem); padding: .375rem .5rem; border: 1px solid #ced4da; border-radius: .375rem;
@@ -186,12 +185,6 @@ $rsHis = mysqli_query($link, $sqlHis);
           <?php unset($_SESSION['error_message']); ?>
         <?php endif; ?>
 
-        <!-- ส่วนหัว + ช่องค้นหาแบบหน้านั้น -->
-        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
-          <h2 class="mb-0"><i class="fas fa-user-exchange me-2"></i> โอนสิทธิครุภัณฑ์</h2>
-          <input type="text" id="historySearch" class="form-control mb-2 mb-md-0" style="max-width:350px;" placeholder="ค้นหาประวัติ (เลขครุภัณฑ์/ชื่อ/หมายเหตุ)...">
-        </div>
-
         <!-- ฟอร์มโอนสิทธิ -->
         <div class="card shadow-sm mb-4">
           <div class="card-body">
@@ -231,7 +224,6 @@ $rsHis = mysqli_query($link, $sqlHis);
                     <option value="<?= (int)$u['user_id'] ?>"><?= htmlspecialchars($display) ?></option>
                   <?php endwhile; endif; ?>
                 </select>
-                <div class="form-text text-muted">ระบบจะแสดงเฉพาะผู้ใช้บทบาทเจ้าหน้าที่และเจ้าหน้าที่พัสดุ</div>
               </div>
 
               <div class="col-12">
@@ -246,7 +238,7 @@ $rsHis = mysqli_query($link, $sqlHis);
           </div>
         </div>
 
-        <!-- ตารางประวัติ: เลื่อนเฉพาะตาราง 80vh -->
+        <!-- ตารางประวัติ -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
             <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
@@ -288,8 +280,6 @@ $rsHis = mysqli_query($link, $sqlHis);
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-
-<!-- jQuery + Select2 สำหรับค้นหาใน select -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
@@ -299,26 +289,18 @@ document.addEventListener('DOMContentLoaded', function() {
   const ownerText = document.getElementById('currentOwnerText');
   const newOwner  = document.getElementById('new_owner_id');
 
-  // เปิดค้นหาบน select
+  // เปิด Select2 ให้ค้นหาได้
   $(itemSel).select2({ width: '100%', placeholder: '— เลือกครุภัณฑ์ —' });
   $(newOwner).select2({ width: '100%', placeholder: '— เลือกผู้ถือสิทธิใหม่ —' });
 
   function refreshNewOwnerDisabled(curId) {
-    // เปิดทุก option ก่อน
     Array.from(newOwner.options).forEach(o => { o.disabled = false; });
-    // ปิด option ที่เป็นเจ้าของปัจจุบัน
     if (curId && Number(curId) > 0) {
       Array.from(newOwner.options).forEach(o => {
-        if (o.value && Number(o.value) === Number(curId)) {
-          o.disabled = true;
-        }
+        if (o.value && Number(o.value) === Number(curId)) { o.disabled = true; }
       });
-      // ถ้าค่าเลือกอยู่ = เจ้าของเดิม ให้เคลียร์ค่า
-      if (newOwner.value && Number(newOwner.value) === Number(curId)) {
-        newOwner.value = '';
-      }
+      if (newOwner.value && Number(newOwner.value) === Number(curId)) { newOwner.value = ''; }
     }
-    // แจ้ง Select2 ให้รีเฟรชสถานะ disabled
     $(newOwner).trigger('change.select2');
   }
 
@@ -335,24 +317,9 @@ document.addEventListener('DOMContentLoaded', function() {
     refreshNewOwnerDisabled(curId);
   }
 
-  // เมื่อเปลี่ยนรายการครุภัณฑ์
   itemSel.addEventListener('change', updateOwnerInfo);
-  // รองรับกรณีเปลี่ยนผ่าน Select2
   $(itemSel).on('select2:select', updateOwnerInfo);
-  // init ครั้งแรก
   updateOwnerInfo();
-
-  // ค้นหาประวัติแบบบนหน้านั้น
-  const searchInput = document.getElementById('historySearch');
-  const rows = () => document.querySelectorAll('#historyTable tbody tr');
-  if (searchInput) {
-    searchInput.addEventListener('input', function() {
-      const q = this.value.toLowerCase();
-      rows().forEach(tr => {
-        tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
-      });
-    });
-  }
 });
 </script>
 
