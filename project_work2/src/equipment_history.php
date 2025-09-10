@@ -28,7 +28,7 @@ $sub_movements = "
     m.to_user_id,
     CONVERT(m.from_location USING utf8mb4) COLLATE utf8mb4_unicode_ci AS from_location,
     CONVERT(m.to_location   USING utf8mb4) COLLATE utf8mb4_unicode_ci AS to_location,
-    CONVERT(m.notes        USING utf8mb4) COLLATE utf8mb4_unicode_ci AS notes,
+    CONVERT(m.notes         USING utf8mb4) COLLATE utf8mb4_unicode_ci AS notes,
     m.created_by,
     /* ช่องสำรองเพื่อ UNION ให้ type ตรง */
     CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS from_user_name_r,
@@ -57,8 +57,8 @@ $sub_history = "
     CONVERT(COALESCE(uo_id.department, uo_name.department) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS from_user_dept_r,
     CONVERT(COALESCE(un_id.department, un_name.department) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS to_user_dept_r
   FROM equipment_history h
-  LEFT JOIN users uo_id  ON (h.old_value REGEXP '^[0-9]+$' AND uo_id.user_id = CAST(h.old_value AS UNSIGNED))
-  LEFT JOIN users un_id  ON (h.new_value REGEXP '^[0-9]+$' AND un_id.user_id = CAST(h.new_value AS UNSIGNED))
+  LEFT JOIN users uo_id   ON (h.old_value REGEXP '^[0-9]+$' AND uo_id.user_id = CAST(h.old_value AS UNSIGNED))
+  LEFT JOIN users un_id   ON (h.new_value REGEXP '^[0-9]+$' AND un_id.user_id = CAST(h.new_value AS UNSIGNED))
   LEFT JOIN users uo_name ON (NOT h.old_value REGEXP '^[0-9]+$' AND uo_name.full_name COLLATE utf8mb4_unicode_ci = h.old_value COLLATE utf8mb4_unicode_ci)
   LEFT JOIN users un_name ON (NOT h.new_value REGEXP '^[0-9]+$' AND un_name.full_name COLLATE utf8mb4_unicode_ci = h.new_value COLLATE utf8mb4_unicode_ci)
   WHERE h.action_type = 'transfer_ownership'
@@ -72,8 +72,8 @@ $sql = "
     mv.movement_date, mv.movement_type, mv.item_id, mv.quantity,
     mv.from_user_id, mv.to_user_id, mv.from_location, mv.to_location, mv.notes, mv.created_by,
     i.item_number, i.model_name, i.brand,
-    COALESCE(uf.full_name, mv.from_user_name_r)  AS from_user_name,
-    COALESCE(ut.full_name, mv.to_user_name_r)    AS to_user_name,
+    COALESCE(uf.full_name, mv.from_user_name_r)   AS from_user_name,
+    COALESCE(ut.full_name, mv.to_user_name_r)     AS to_user_name,
     COALESCE(uf.department, mv.from_user_dept_r) AS from_user_department,
     COALESCE(ut.department, mv.to_user_dept_r)   AS to_user_department,
     uc.full_name AS created_by_name,
@@ -87,8 +87,8 @@ $sql = "
 ";
 
 $params = [];
-if ($item_filter > 0) { $sql .= " AND mv.item_id = ? ";             $params[] = (string)$item_filter; }
-if ($type_filter !== '') { $sql .= " AND mv.movement_type = ? ";    $params[] = $type_filter; }
+if ($item_filter > 0) { $sql .= " AND mv.item_id = ? ";            $params[] = (string)$item_filter; }
+if ($type_filter !== '') { $sql .= " AND mv.movement_type = ? ";   $params[] = $type_filter; }
 if ($date_from !== '') {   $sql .= " AND DATE(mv.movement_date) >= ? "; $params[] = $date_from; }
 if ($date_to !== '') {     $sql .= " AND DATE(mv.movement_date) <= ? "; $params[] = $date_to; }
 if ($user_filter > 0) {
@@ -102,9 +102,9 @@ if ($q !== '') {
     AND (
       i.item_number COLLATE utf8mb4_unicode_ci LIKE ?
       OR i.model_name COLLATE utf8mb4_unicode_ci LIKE ?
-      OR i.brand      COLLATE utf8mb4_unicode_ci LIKE ?
-      OR COALESCE(uf.full_name, mv.from_user_name_r)  COLLATE utf8mb4_unicode_ci LIKE ?
-      OR COALESCE(ut.full_name, mv.to_user_name_r)    COLLATE utf8mb4_unicode_ci LIKE ?
+      OR i.brand       COLLATE utf8mb4_unicode_ci LIKE ?
+      OR COALESCE(uf.full_name, mv.from_user_name_r)   COLLATE utf8mb4_unicode_ci LIKE ?
+      OR COALESCE(ut.full_name, mv.to_user_name_r)     COLLATE utf8mb4_unicode_ci LIKE ?
       OR COALESCE(uf.department, mv.from_user_dept_r) COLLATE utf8mb4_unicode_ci LIKE ?
       OR COALESCE(ut.department, mv.to_user_dept_r)   COLLATE utf8mb4_unicode_ci LIKE ?
       OR mv.from_location COLLATE utf8mb4_unicode_ci LIKE ?
@@ -162,7 +162,6 @@ function get_movement_type_badge($type){
 <body>
 <div class="container-fluid">
   <div class="row">
-    <!-- Mobile Navbar -->
     <nav class="navbar navbar-light bg-light d-md-none mb-3">
       <div class="container-fluid">
         <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSidebar"><span class="navbar-toggler-icon"></span></button>
@@ -180,7 +179,6 @@ function get_movement_type_badge($type){
           <div class="text-muted"><i class="fas fa-calendar-alt me-1"></i> วันที่ปัจจุบัน: <?= thaidate('j M Y', date('Y-m-d')) ?></div>
         </div>
 
-        <!-- ฟอร์มกรอง/ค้นหา -->
         <div class="filter-card p-4 mb-3 bg-white rounded shadow-sm">
           <form method="get" class="row g-3">
             <div class="col-lg-3 col-md-4">
@@ -245,7 +243,6 @@ function get_movement_type_badge($type){
           </form>
         </div>
 
-        <!-- ตาราง -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
             <div class="table-responsive" style="max-height:60vh; overflow-y:auto;">
@@ -274,14 +271,18 @@ function get_movement_type_badge($type){
                     </td>
                     <td><?= (int)($row['quantity'] ?? 0); ?></td>
                     <td>
-                      <?php if (!empty($row['from_location'])): ?>
-                        <i class="fas fa-map-marker-alt text-danger"></i> <?= htmlspecialchars($row['from_location']); ?><br>
-                      <?php endif; ?>
-                      <?php if (!empty($row['from_user_name'])): ?>
-                        <i class="fas fa-user text-primary"></i> <strong><?= htmlspecialchars($row['from_user_name']); ?></strong>
-                        <?php if (!empty($row['from_user_department'])): ?>
-                          <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['from_user_department']); ?></small>
-                        <?php endif; ?>
+                      <?php if (!empty($row['from_location']) || !empty($row['from_user_name'])): ?>
+                          <?php if (!empty($row['from_location'])): ?>
+                              <i class="fas fa-map-marker-alt text-danger"></i> <?= htmlspecialchars($row['from_location']); ?><br>
+                          <?php endif; ?>
+                          <?php if (!empty($row['from_user_name'])): ?>
+                              <i class="fas fa-user text-primary"></i> <strong><?= htmlspecialchars($row['from_user_name']); ?></strong>
+                              <?php if (!empty($row['from_user_department'])): ?>
+                                  <br><small class="text-muted"><i class="fas fa-building"></i> <?= htmlspecialchars($row['from_user_department']); ?></small>
+                              <?php endif; ?>
+                          <?php endif; ?>
+                      <?php else: ?>
+                          <span class="text-muted">-</span>
                       <?php endif; ?>
                     </td>
                     <td>
@@ -313,8 +314,7 @@ function get_movement_type_badge($type){
           </div>
         </div>
 
-      </div><!-- /.main-content -->
-    </div>
+      </div></div>
   </div>
 </div>
 

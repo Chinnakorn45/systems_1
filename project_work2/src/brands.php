@@ -7,65 +7,52 @@ if (!isset($_SESSION["user_id"])) {
     exit;
 }
 
-// ลบยี่ห้อ (ถ้ามี action=delete)
+// Reusable function to handle deletion
+function deleteRecord($link, $table, $id_column, $id, $redirect_page) {
+    // Check for related data before deletion to prevent orphan records
+    // In a real-world scenario, this should be handled by ON DELETE RESTRICT foreign key constraints
+    // For this example, we will proceed with deletion.
+    
+    $sql = "DELETE FROM $table WHERE $id_column = ?";
+    if ($stmt = mysqli_prepare($link, $sql)) {
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        if (mysqli_stmt_execute($stmt)) {
+            // Deletion successful
+        } else {
+            // Log the error
+            error_log("Error deleting record from $table: " . mysqli_error($link));
+        }
+        mysqli_stmt_close($stmt);
+        header("location: $redirect_page");
+        exit;
+    } else {
+        error_log("Error preparing delete statement for $table: " . mysqli_error($link));
+        header("location: $redirect_page?error=sql_prepare_failed");
+        exit;
+    }
+}
+
+// Handle Brand Deletion
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $brand_id = intval($_GET['id']);
-    // ตรวจสอบว่ามียี่ห้อนี้ถูกใช้งานในตาราง models หรือ items หรือไม่
-    // ถ้ามี ควรแจ้งเตือนหรือจัดการตามความเหมาะสมของ DB constraint (เช่น ON DELETE RESTRICT)
-    // สำหรับตัวอย่างนี้ จะดำเนินการลบไปเลย แต่ใน Production ควรจัดการ Foreign Key ให้ดีกว่านี้
-    
-    $sql = "DELETE FROM brands WHERE brand_id = ?";
-    if ($stmt = mysqli_prepare($link, $sql)) {
-        mysqli_stmt_bind_param($stmt, "i", $brand_id);
-        if (mysqli_stmt_execute($stmt)) {
-            // Success
-        } else {
-            // Log error
-            error_log("Error deleting brand: " . mysqli_error($link));
-        }
-        mysqli_stmt_close($stmt);
-        header("location: brands.php");
-        exit;
-    } else {
-        error_log("Error preparing brand delete statement: " . mysqli_error($link));
-        header("location: brands.php?error=sql_prepare_brand_delete");
-        exit;
-    }
+    deleteRecord($link, 'brands', 'brand_id', $brand_id, 'brands.php');
 }
 
-// ลบชื่อรุ่น (ถ้ามี action=delete_model)
+// Handle Model Deletion
 if (isset($_GET['action']) && $_GET['action'] === 'delete_model' && isset($_GET['id'])) {
     $model_id = intval($_GET['id']);
-    // ตรวจสอบว่ามีรุ่นนี้ถูกใช้งานในตาราง items หรือไม่
-    
-    $sql = "DELETE FROM models WHERE model_id = ?";
-    if ($stmt = mysqli_prepare($link, $sql)) {
-        mysqli_stmt_bind_param($stmt, "i", $model_id);
-        if (mysqli_stmt_execute($stmt)) {
-            // Success
-        } else {
-            // Log error
-            error_log("Error deleting model: " . mysqli_error($link));
-        }
-        mysqli_stmt_close($stmt);
-        header("location: brands.php"); // Redirect back to this page
-        exit;
-    } else {
-        error_log("Error preparing model delete statement: " . mysqli_error($link));
-        header("location: brands.php?error=sql_prepare_model_delete");
-        exit;
-    }
+    deleteRecord($link, 'models', 'model_id', $model_id, 'brands.php');
 }
 
-// ดึงข้อมูลยี่ห้อ
+// Fetch all brands
 $sql_brands = "SELECT * FROM brands ORDER BY brand_id DESC";
 $result_brands = mysqli_query($link, $sql_brands);
 
-// ดึงข้อมูลชื่อรุ่น JOIN กับยี่ห้อ
+// Fetch all models, joining with brands for the brand name
 $sql_models = "SELECT m.model_id, m.model_name, b.brand_name FROM models m LEFT JOIN brands b ON m.brand_id = b.brand_id ORDER BY m.model_id DESC";
 $result_models = mysqli_query($link, $sql_models);
-
 ?>
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -75,62 +62,70 @@ $result_models = mysqli_query($link, $sql_models);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { 
-            background: #f8f9fa; 
+        @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap');
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #f0f2f5;
         }
         .main-container {
             margin-top: 40px;
-            margin-bottom: 20px;
+            margin-bottom: 40px;
         }
         .section-card {
             background: #ffffff;
-            padding: 25px;
-            border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.05);
-            height: 100%; /* Ensure cards stretch to fill column */
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            height: 100%;
             display: flex;
             flex-direction: column;
-            margin-bottom: 20px; /* Add margin to bottom for spacing between cards on small screens */
+            transition: transform 0.3s ease;
         }
-        .table thead th { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-            color: #fff; 
+        .section-card:hover {
+            transform: translateY(-5px);
+        }
+        .table thead th {
+            background-color: #4CAF50; /* A pleasant green */
+            color: #fff;
             vertical-align: middle;
-            text-align: center; /* Center header text by default */
-            white-space: nowrap; /* Prevent wrapping for small columns */
+            text-align: center;
+            border: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+        .table tbody tr:hover {
+            background-color: #f5f5f5;
         }
         .table tbody td {
             vertical-align: middle;
-            text-align: center; /* Center cell content by default */
+            text-align: center;
         }
-        /* Specific alignment for table columns */
         .table th.text-start,
         .table td.text-start {
             text-align: start !important;
         }
-
-        .btn-add { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-            color: #fff; 
+        .btn-add {
+            background: linear-gradient(135deg, #4CAF50 0%, #8BC34A 100%);
+            color: #fff;
             border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
+            padding: 10px 20px;
+            border-radius: 50px; /* Pill-shaped button */
             transition: all 0.3s ease;
         }
-        .btn-add:hover { 
-            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%); 
-            color: #fff; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        .btn-add:hover {
+            background: linear-gradient(135deg, #8BC34A 0%, #4CAF50 100%);
+            color: #fff;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
         .btn-sm {
-            padding: .25rem .5rem;
-            font-size: .875rem;
-            border-radius: .2rem;
+            padding: .3rem .75rem;
+            font-size: .85rem;
+            border-radius: .3rem;
         }
         .btn-warning {
             background-color: #ffc107;
             border-color: #ffc107;
-            color: #212529; /* Dark text for better contrast */
+            color: #212529;
         }
         .btn-warning:hover {
             background-color: #e0a800;
@@ -145,9 +140,7 @@ $result_models = mysqli_query($link, $sql_models);
             border-color: #bd2130;
         }
         .table-responsive {
-            overflow-x: auto; /* Allow horizontal scrolling on small screens */
-            flex-grow: 1; /* Allow table to grow and fill space */
-            margin-bottom: 15px; /* Add some space below table if it's the last element */
+            flex-grow: 1;
         }
         .flex-grow-1 {
             flex-grow: 1;
@@ -156,21 +149,20 @@ $result_models = mysqli_query($link, $sql_models);
             display: flex;
             flex-direction: column;
         }
-        /* Custom fixed table layout */
         .table-fixed-layout {
-            table-layout: fixed; /* Fix table column widths */
+            table-layout: fixed;
             width: 100%;
         }
     </style>
 </head>
 <body>
-    <div class="container-fluid main-container">
+    <div class="container main-container">
         <div class="row align-items-stretch">
             
             <div class="col-md-6 d-flex flex-column">
                 <div class="section-card">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h2><i class="fas fa-trademark me-2"></i> จัดการยี่ห้อ</h2>
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2 class="h4 text-primary"><i class="fas fa-trademark me-2"></i> จัดการยี่ห้อ</h2>
                         <a href="brand_form.php" class="btn btn-add"><i class="fas fa-plus me-1"></i> เพิ่มยี่ห้อ</a>
                     </div>
                     <div class="table-responsive flex-grow-1">
@@ -205,8 +197,8 @@ $result_models = mysqli_query($link, $sql_models);
             
             <div class="col-md-6 d-flex flex-column">
                 <div class="section-card">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h2><i class="fas fa-box me-2"></i> จัดการชื่อรุ่น</h2>
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2 class="h4 text-primary"><i class="fas fa-box me-2"></i> จัดการชื่อรุ่น</h2>
                         <a href="model_form.php" class="btn btn-add"><i class="fas fa-plus me-1"></i> เพิ่มชื่อรุ่น</a>
                     </div>
                     <div class="table-responsive flex-grow-1">
@@ -223,7 +215,8 @@ $result_models = mysqli_query($link, $sql_models);
                                     <?php while ($model = mysqli_fetch_assoc($result_models)): ?>
                                     <tr>
                                         <td class="text-start"><?php echo htmlspecialchars($model['model_name']); ?></td>
-                                        <td><?php echo htmlspecialchars($model['brand_name'] ?: '-'); ?></td> <td>
+                                        <td><?php echo htmlspecialchars($model['brand_name'] ?: '-'); ?></td> 
+                                        <td>
                                             <a href="model_form.php?id=<?php echo $model['model_id']; ?>" class="btn btn-sm btn-warning me-1" title="แก้ไข"><i class="fas fa-edit"></i></a>
                                             <a href="brands.php?action=delete_model&id=<?php echo $model['model_id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('ยืนยันการลบชื่อรุ่น <?php echo htmlspecialchars($model['model_name']); ?>? การลบชื่อรุ่นอาจส่งผลต่อข้อมูลครุภัณฑ์ที่เกี่ยวข้อง');" title="ลบ"><i class="fas fa-trash"></i></a>
                                         </td>
@@ -243,7 +236,7 @@ $result_models = mysqli_query($link, $sql_models);
 
         <div class="row mt-4">
             <div class="col-12 text-center">
-                <a href="items.php" class="btn btn-secondary px-4 py-2">
+                <a href="items.php" class="btn btn-secondary px-4 py-2 rounded-pill">
                     <i class="fas fa-arrow-alt-circle-left me-1"></i> กลับหน้าหลักครุภัณฑ์
                 </a>
             </div>
