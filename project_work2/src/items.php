@@ -167,8 +167,8 @@ $sql = "SELECT
             ELSE 'available'
           END as current_status,
           (SELECT GROUP_CONCAT(CONCAT(image_id, '::', image_path) 
-                               ORDER BY is_primary DESC, sort_order, uploaded_at 
-                               SEPARATOR '||') 
+                              ORDER BY is_primary DESC, sort_order, uploaded_at 
+                              SEPARATOR '||') 
              FROM item_images ii 
             WHERE ii.item_id = i.item_id) AS images_concat
         FROM items i
