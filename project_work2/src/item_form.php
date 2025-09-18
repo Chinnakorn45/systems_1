@@ -17,8 +17,6 @@ while ($row = mysqli_fetch_assoc($cat_result)) {
 
 // ดึงชื่อรุ่น (models) พร้อมยี่ห้อ
 $models = [];
-// ใช้ LEFT JOIN เพื่อให้แน่ใจว่าได้ข้อมูล model_id แม้ว่า brand_id จะเป็น NULL หรือไม่มีในตาราง brands
-// แก้ไข: ใช้ m.model_name เพื่อดึงชื่อรุ่นที่ถูกต้องจากตาราง models
 $model_result = mysqli_query($link, "SELECT m.model_id, m.model_name, b.brand_name FROM models m LEFT JOIN brands b ON m.brand_id = b.brand_id ORDER BY m.model_name");
 while ($row = mysqli_fetch_assoc($model_result)) {
     $models[] = $row;
@@ -36,17 +34,16 @@ $item_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $item_number = $serial_number = $description = $note = $category_id = $total_quantity = $location = $purchase_date = $budget_year = $price_per_unit = $total_price = '';
 $image = ''; // backward-compat single image field
 $images = []; // array of image rows from item_images
-$item_number_err = $serial_number_err = $brand_err = $category_id_err = $total_quantity_err = $budget_year_err = $price_per_unit_err = $image_err = $model_id_err = ''; // เพิ่ม model_id_err
+$item_number_err = $serial_number_err = $brand_err = $category_id_err = $total_quantity_err = $budget_year_err = $price_per_unit_err = $image_err = $model_id_err = '';
 $is_edit = false;
 $model_id = '';
-$brand_name_display = ''; // เพิ่มตัวแปรสำหรับแสดงยี่ห้อในฟอร์ม
-$brand = ''; // ต้องมีตัวแปร $brand สำหรับบันทึกลง DB
+$brand_name_display = '';
+$brand = '';
 $is_disposed = 0; // 0=ยังไม่จำหน่าย, 1=จำหน่าย(ส่งคืนพัสดุ)
 
 // ถ้าเป็นการแก้ไข ดึงข้อมูลเดิมมาแสดง
 if ($item_id > 0) {
     $is_edit = true;
-    // JOIN ตาราง models และ brands โดยใช้ model_name แทน model_id
     $sql = "SELECT i.*, m.model_id, m.model_name, b.brand_name 
             FROM items i 
             LEFT JOIN models m ON i.model_name = m.model_name
@@ -59,8 +56,8 @@ if ($item_id > 0) {
         if ($row = mysqli_fetch_assoc($result)) {
             $item_number = $row['item_number'];
             $serial_number = isset($row['serial_number']) ? $row['serial_number'] : '';
-            $brand = $row['brand']; // ค่า 'brand' ที่บันทึกใน DB
-            $brand_name_display = isset($row['brand_name']) ? $row['brand_name'] : $row['brand']; // ใช้ brand_name จาก JOIN ถ้ามี, ถ้าไม่มีใช้ค่าจากฟิลด์ brand เดิม
+            $brand = $row['brand'];
+            $brand_name_display = isset($row['brand_name']) ? $row['brand_name'] : $row['brand'];
             $description = $row['description'];
             $category_id = $row['category_id'];
             $total_quantity = $row['total_quantity'];
@@ -74,7 +71,7 @@ if ($item_id > 0) {
             $model_id = isset($row['model_id']) ? $row['model_id'] : '';
             $is_disposed = isset($row['is_disposed']) ? (int)$row['is_disposed'] : 0;
 
-            // load additional images from item_images (if table exists)
+            // load additional images
             $images = [];
             $sql_imgs = "SELECT image_id, image_path, is_primary, sort_order, uploaded_at FROM item_images WHERE item_id = ? ORDER BY sort_order, uploaded_at";
             if ($stmt_imgs = @mysqli_prepare($link, $sql_imgs)) {
@@ -87,7 +84,6 @@ if ($item_id > 0) {
                 mysqli_stmt_close($stmt_imgs);
             }
         } else {
-            // ถ้าไม่พบ item_id ที่ระบุ ให้ redirect หรือแสดงข้อผิดพลาด
             echo "<script>alert('ไม่พบข้อมูลครุภัณฑ์ที่ต้องการแก้ไข'); window.location='items.php';</script>";
             exit;
         }
@@ -99,29 +95,25 @@ if ($item_id > 0) {
     }
 }
 
-// แสดงข้อความแจ้งเตือน (Success/Error) หลัง redirect
+// แสดงข้อความแจ้งเตือนหลัง redirect
 if (isset($_GET['success'])) {
     if ($_GET['success'] == 1) {
-        // ใช้ setTimeout เพื่อให้ alert แสดงผลก่อน redirect
         echo "<script>setTimeout(function(){ alert('บันทึกข้อมูลสำเร็จ!'); window.location = 'items.php'; }, 100);</script>";
     } else if ($_GET['success'] == 0) {
         echo "<script>alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');</script>";
     }
 }
 
-
-// เมื่อมีการส่งฟอร์ม (POST request)
+// เมื่อมีการส่งฟอร์ม
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $item_number = trim($_POST['item_number']);
     $serial_number = trim($_POST['serial_number']);
-    
-    // ดึงค่า model_id ที่เลือกจาก POST
+
+    // ดึงค่า model_id
     $selected_model_id_for_post = isset($_POST['model_id']) ? intval($_POST['model_id']) : 0;
-    $model_id = $selected_model_id_for_post; // กำหนดค่า model_id สำหรับบันทึก
-    
-    // กำหนดค่า default ให้ $brand_from_model
+    $model_id = $selected_model_id_for_post;
+
     $brand_from_model = '';
-    // หา model_name จาก $models array โดยใช้ model_id ที่เลือก
     $model_name = '';
     if ($model_id > 0) {
         foreach ($models as $m) {
@@ -132,7 +124,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
     }
-    // ถ้ามีการกรอกยี่ห้อด้วยตัวเอง ให้ใช้ค่านั้นเป็นค่า brand
+    // brand: จากรุ่นหรือจาก POST (แต่ฟิลด์ในฟอร์มถูก lock ให้ readonly)
     $brand = isset($_POST['brand']) && trim($_POST['brand']) !== '' ? trim($_POST['brand']) : $brand_from_model;
 
     $description = trim($_POST['description']);
@@ -143,32 +135,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $purchase_date = $_POST['purchase_date'];
     $budget_year = trim($_POST['budget_year']);
     $price_per_unit = trim($_POST['price_per_unit']);
-    // $total_price = trim($_POST['total_price']); // ค่านี้จะถูกคำนวณจาก JS แต่เราจะคำนวณซ้ำเพื่อความแม่นยำ
 
-    // เพิ่มสถานะจำหน่ายจากฟอร์ม
+    // สถานะจำหน่าย
     $is_disposed = isset($_POST['is_disposed']) ? 1 : 0;
 
     // Validate
     if (empty($serial_number)) $serial_number_err = "กรุณากรอกซีเรียลนัมเบอร์";
-    if ($model_id <= 0) $model_id_err = "กรุณาเลือกชื่อรุ่น"; // ตรวจสอบ model_id
+    if ($model_id <= 0) $model_id_err = "กรุณาเลือกชื่อรุ่น";
     if (empty($brand)) $brand_err = "ไม่สามารถระบุยี่ห้อได้ กรุณาเลือกชื่อรุ่นที่มียี่ห้อ หรือเพิ่มยี่ห้อ/รุ่นก่อน";
     if ($category_id <= 0) $category_id_err = "กรุณาเลือกหมวดหมู่";
     if ($total_quantity < 0) $total_quantity_err = "จำนวนรวมต้องไม่ติดลบ";
     if (empty($budget_year) || !preg_match('/^[0-9]{4}$/', $budget_year)) $budget_year_err = "กรุณากรอกปีงบประมาณ 4 หลัก";
     if ($price_per_unit === '' || !is_numeric($price_per_unit) || $price_per_unit < 0) $price_per_unit_err = "กรุณากรอกราคาต่อหน่วย (ตัวเลขไม่ติดลบ)";
-    else $price_per_unit = floatval($price_per_unit); // Convert to float for calculation
-    
-    // ตรวจสอบความยาวของ Serial Number และ Item Number
+    else $price_per_unit = floatval($price_per_unit);
+
     if (strlen($serial_number) > 100) $serial_number_err = "Serial Number ต้องไม่เกิน 100 ตัวอักษร";
     if (!empty($item_number) && strlen($item_number) > 100) $item_number_err = "เลขครุภัณฑ์ต้องไม่เกิน 100 ตัวอักษร";
-    
-    // ตรวจสอบรูปแบบของ Serial Number และ Item Number
     if (!empty($serial_number) && !preg_match('/^[a-zA-Z0-9\-\_\.\s]+$/', $serial_number)) {
         $serial_number_err = "Serial Number ต้องประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมาย - _ . เท่านั้น";
     }
-    // คำนวณราคารวมอีกครั้งเพื่อความถูกต้องใน DB
-    $total_price = $total_quantity * $price_per_unit;
 
+    // คำนวณราคารวม
+    $total_price = $total_quantity * $price_per_unit;
 
     // ตรวจสอบ Serial Number ซ้ำ
     $old_serial_number = '';
@@ -184,30 +172,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             mysqli_stmt_close($stmt_get_old);
         }
     }
-
-    if (!$is_edit || ($is_edit && $serial_number !== $old_serial_number)) { 
+    if (!$is_edit || ($is_edit && $serial_number !== $old_serial_number)) {
         if (!empty($serial_number)) {
             $sql_check_serial = "SELECT COUNT(*) AS cnt FROM items WHERE serial_number = ?";
-            if ($is_edit) {
-                $sql_check_serial .= " AND item_id != ?";
-            }
+            if ($is_edit) $sql_check_serial .= " AND item_id != ?";
             $stmt_check = mysqli_prepare($link, $sql_check_serial);
-            if ($is_edit) {
-                mysqli_stmt_bind_param($stmt_check, "si", $serial_number, $item_id);
-            } else {
-                mysqli_stmt_bind_param($stmt_check, "s", $serial_number);
-            }
+            if ($is_edit) mysqli_stmt_bind_param($stmt_check, "si", $serial_number, $item_id);
+            else mysqli_stmt_bind_param($stmt_check, "s", $serial_number);
             mysqli_stmt_execute($stmt_check);
             $result_check = mysqli_stmt_get_result($stmt_check);
             $row_check = mysqli_fetch_assoc($result_check);
-            if ($row_check['cnt'] > 0) {
-                $serial_number_err = "Serial Number นี้ถูกใช้ไปแล้วในระบบ";
-            }
+            if ($row_check['cnt'] > 0) $serial_number_err = "Serial Number นี้ถูกใช้ไปแล้วในระบบ";
             mysqli_stmt_close($stmt_check);
         }
     }
 
-    // ตรวจสอบ Item Number ซ้ำ (เฉพาะตอนเพิ่มใหม่ หรือแก้ไข item_number)
+    // ตรวจสอบ Item Number ซ้ำ
     $old_item_number = '';
     if ($is_edit && $item_id > 0) {
         $sql_get_old_item_num = "SELECT item_number FROM items WHERE item_id = ?";
@@ -221,35 +201,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             mysqli_stmt_close($stmt_get_old_item_num);
         }
     }
-
     if (!empty($item_number)) {
-        if (!$is_edit || ($is_edit && $item_number !== $old_item_number)) { 
+        if (!$is_edit || ($is_edit && $item_number !== $old_item_number)) {
             $sql_check_item_num = "SELECT COUNT(*) AS cnt FROM items WHERE item_number = ?";
-            if ($is_edit) {
-                $sql_check_item_num .= " AND item_id != ?";
-            }
+            if ($is_edit) $sql_check_item_num .= " AND item_id != ?";
             $stmt_check_item_num = mysqli_prepare($link, $sql_check_item_num);
-            if ($is_edit) {
-                mysqli_stmt_bind_param($stmt_check_item_num, "si", $item_number, $item_id);
-            } else {
-                mysqli_stmt_bind_param($stmt_check_item_num, "s", $item_number);
-            }
+            if ($is_edit) mysqli_stmt_bind_param($stmt_check_item_num, "si", $item_number, $item_id);
+            else mysqli_stmt_bind_param($stmt_check_item_num, "s", $item_number);
             mysqli_stmt_execute($stmt_check_item_num);
             $result_check_item_num = mysqli_stmt_get_result($stmt_check_item_num);
             $row_check_item_num = mysqli_fetch_assoc($result_check_item_num);
-            if ($row_check_item_num['cnt'] > 0) {
-                $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
-            }
+            if ($row_check_item_num['cnt'] > 0) $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
             mysqli_stmt_close($stmt_check_item_num);
         }
     }
 
-    // ลบรูปที่ผู้ใช้เลือกในฟอร์ม (remove_images[])
+    // ลบรูปที่ผู้ใช้ติ๊ก
     if ($is_edit && isset($_POST['remove_images']) && is_array($_POST['remove_images'])) {
         $toRemove = array_map('intval', $_POST['remove_images']);
         if (!empty($toRemove)) {
             $in = implode(',', $toRemove);
-            // fetch paths
             $q = "SELECT image_id, image_path FROM item_images WHERE image_id IN ($in) AND item_id = " . intval($item_id);
             $res = mysqli_query($link, $q);
             while ($r = mysqli_fetch_assoc($res)) {
@@ -258,22 +229,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             }
             mysqli_query($link, "DELETE FROM item_images WHERE image_id IN ($in) AND item_id = " . intval($item_id));
-            // if removed image was the items.image, clear it so later code can reset primary
-            if (!empty($image) && in_array($image, $toRemove)) {
-                mysqli_query($link, "UPDATE items SET image = '' WHERE item_id = " . intval($item_id));
-                $image = '';
+            // ถ้ารูปหลักโดนลบ เคลียร์ฟิลด์ image
+            if (!empty($image)) {
+                $chk = mysqli_query($link, "SELECT COUNT(*) AS c FROM item_images WHERE item_id=" . intval($item_id) . " AND image_path='" . mysqli_real_escape_string($link, $image) . "'");
+                $rowc = $chk ? mysqli_fetch_assoc($chk) : null;
+                if (!$rowc || intval($rowc['c']) === 0) {
+                    mysqli_query($link, "UPDATE items SET image = '' WHERE item_id = " . intval($item_id));
+                    $image = '';
+                }
             }
         }
     }
 
-    // อัปโหลดไฟล์รูป (รองรับหลายรูป: input name="images[]")
-    $uploaded_images = []; // will hold new image paths
+    // อัปโหลดไฟล์รูป (รองรับหลายรูป: images[])
+    $uploaded_images = [];
     if (!empty($_FILES['images']) && is_array($_FILES['images']['name'])) {
         $allowed = ['jpg','jpeg','png','gif'];
-        // Ensure uploads dir exists
-        if (!is_dir('uploads')) {
-            mkdir('uploads', 0777, true);
-        }
+        if (!is_dir('uploads')) mkdir('uploads', 0777, true);
         foreach ($_FILES['images']['name'] as $idx => $origName) {
             if (empty($origName)) continue;
             $error = $_FILES['images']['error'][$idx];
@@ -286,14 +258,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
     }
-    // keep backward compatibility: if old single-image field sent, use it
     if (isset($_POST['old_image']) && empty($uploaded_images)) {
         $image = $_POST['old_image'];
     }
 
-    // หากไม่มี error
+    // หากไม่มี error -> บันทึก
     if (empty($serial_number_err) && empty($item_number_err) && empty($brand_err) && empty($category_id_err) && empty($total_quantity_err) && empty($budget_year_err) && empty($price_per_unit_err) && empty($image_err) && empty($model_id_err)) {
-        
+
         if ($is_edit) {
             $sql = "UPDATE items 
                     SET model_name=?, item_number=?, serial_number=?, brand=?, description=?, note=?, 
@@ -309,8 +280,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     $price_per_unit, $total_price, $is_disposed, $item_id
                 );
                 if (mysqli_stmt_execute($stmt)) {
-                    // Success
-                    // if new uploaded images exist, insert them into item_images
+                    // แทรกรูปใหม่เข้าตาราง item_images
                     if (!empty($uploaded_images)) {
                         $ins_sql = "INSERT INTO item_images (item_id, image_path, is_primary, sort_order) VALUES (?, ?, 0, 0)";
                         if ($ins_stmt = @mysqli_prepare($link, $ins_sql)) {
@@ -320,7 +290,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             }
                             mysqli_stmt_close($ins_stmt);
                         }
-                        // if items.image is empty or we want to update primary, update items.image to first uploaded
+                        // ตั้งรูปหลักใน items.image ถ้ายังว่าง
                         if (empty($image) && !empty($uploaded_images)) {
                             $first = $uploaded_images[0];
                             mysqli_query($link, "UPDATE items SET image = '" . mysqli_real_escape_string($link, $first) . "' WHERE item_id = " . intval($item_id));
@@ -328,13 +298,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     }
                     echo "<script>window.location = 'item_form.php?id=" . $item_id . "&success=1';</script>";
                 } else {
-                    // Error
-                    error_log("Error executing UPDATE statement: " . mysqli_error($link));
+                    error_log("Error executing UPDATE: " . mysqli_error($link));
                     echo "<script>alert('เกิดข้อผิดพลาดในการบันทึกการแก้ไข: " . mysqli_error($link) . "');</script>";
                 }
                 mysqli_stmt_close($stmt);
             } else {
-                error_log("Error preparing UPDATE statement: " . mysqli_error($link));
+                error_log("Error preparing UPDATE: " . mysqli_error($link));
                 echo "<script>alert('เกิดข้อผิดพลาดในการเตรียมการอัปเดตข้อมูล');</script>";
             }
         } else {
@@ -348,9 +317,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     $price_per_unit, $total_price, $is_disposed
                 );
                 if (mysqli_stmt_execute($stmt)) {
-                    // Success - get inserted id
                     $new_item_id = mysqli_insert_id($link);
-                    // insert uploaded images into item_images
                     if (!empty($uploaded_images)) {
                         $ins_sql = "INSERT INTO item_images (item_id, image_path, is_primary, sort_order) VALUES (?, ?, 0, 0)";
                         if ($ins_stmt = @mysqli_prepare($link, $ins_sql)) {
@@ -360,19 +327,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             }
                             mysqli_stmt_close($ins_stmt);
                         }
-                        // update items.image to first uploaded for backward compatibility
+                        // อัปเดตภาพหลัก
                         $first = $uploaded_images[0];
                         mysqli_query($link, "UPDATE items SET image = '" . mysqli_real_escape_string($link, $first) . "' WHERE item_id = " . intval($new_item_id));
                     }
                     echo "<script>window.location = 'item_form.php?success=1';</script>";
                 } else {
-                    // Error
-                    error_log("Error executing INSERT statement: " . mysqli_error($link));
+                    error_log("Error executing INSERT: " . mysqli_error($link));
                     echo "<script>alert('เกิดข้อผิดพลาดในการบันทึกข้อมูลใหม่: " . mysqli_error($link) . "');</script>";
                 }
                 mysqli_stmt_close($stmt);
             } else {
-                error_log("Error preparing INSERT statement: " . mysqli_error($link));
+                error_log("Error preparing INSERT: " . mysqli_error($link));
                 echo "<script>alert('เกิดข้อผิดพลาดในการเตรียมการบันทึกข้อมูลใหม่');</script>";
             }
         }
@@ -395,7 +361,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             color: #333;
         }
         .container { 
-            max-width: 700px; /* ขยายความกว้างของฟอร์ม */
+            max-width: 700px;
             margin-top: 40px; 
             padding: 20px;
             background-color: #fff;
@@ -404,10 +370,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         .form-label { 
             font-weight: 500; 
-            color: #2e7d32; /* สีเขียวเข้มสำหรับ label */
+            color: #2e7d32;
         }
         .btn-main { 
-            background: linear-gradient(135deg, #4CAF50 0%, #8BC34A 100%); /* Green gradient for primary action */
+            background: linear-gradient(135deg, #4CAF50 0%, #8BC34A 100%);
             color: #fff; 
             border: none;
             padding: 10px 20px;
@@ -417,7 +383,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         .btn-main:hover { 
             background: linear-gradient(135deg, #8BC34A 0%, #4CAF50 100%); 
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            color: #fff; /* Ensure text color remains white on hover */
+            color: #fff;
         }
         .btn-secondary {
             background-color: #6c757d;
@@ -431,83 +397,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             background-color: #5a6268;
             color: #fff;
         }
-        .form-control.is-invalid, .form-select.is-invalid {
-            border-color: #dc3545;
-        }
-        .invalid-feedback {
-            color: #dc3545;
-        }
-        .input-group .btn-outline-secondary {
-            border-color: #ced4da;
-            color: #495057;
-        }
-        .input-group .btn-outline-secondary:hover {
-            background-color: #e2e6ea;
-            border-color: #dae0e5;
-        }
-        /* Style for image thumbnail */
-        .mb-3 img {
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 5px;
-        }
-        #qr-reader {
-            position: relative;
-            width: 100%;
-            max-width: 400px;
-            margin: auto;
-            height: 320px;
-            background: #000;
-        }
-        #qr-reader video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .scan-overlay {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            pointer-events: none;
-        }
-        .scan-frame {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 80%;
-            height: 80px;
-            transform: translate(-50%, -50%);
-            border-radius: 18px;
-            box-sizing: border-box;
-        }
-        .scan-corner {
-            position: absolute;
-            width: 28px;
-            height: 28px;
-        }
-        .scan-corner.tl { top: 0; left: 0; border-top: 4px solid #00ff66; border-left: 4px solid #00ff66; border-top-left-radius: 18px; }
-        .scan-corner.tr { top: 0; right: 0; border-top: 4px solid #00ff66; border-right: 4px solid #00ff66; border-top-right-radius: 18px; }
-        .scan-corner.bl { bottom: 0; left: 0; border-bottom: 4px solid #00ff66; border-left: 4px solid #00ff66; border-bottom-left-radius: 18px; }
-        .scan-corner.br { bottom: 0; right: 0; border-bottom: 4px solid #00ff66; border-right: 4px solid #00ff66; border-bottom-right-radius: 18px; }
-        .scan-dim {
-            position: absolute;
-            background: rgba(0,0,0,0.55);
-        }
-        .scan-dim.top { left:0; right:0; top:0; height: 32%; }
-        .scan-dim.bottom { left:0; right:0; bottom:0; height: 32%; }
+        .form-control.is-invalid, .form-select.is-invalid { border-color: #dc3545; }
+        .invalid-feedback { color: #dc3545; }
+        .input-group .btn-outline-secondary { border-color: #ced4da; color: #495057; }
+        .input-group .btn-outline-secondary:hover { background-color: #e2e6ea; border-color: #dae0e5; }
+        .mb-3 img { border: 1px solid #ddd; border-radius: 4px; padding: 5px; }
+
+        /* Scanner overlay */
+        #qr-reader { position: relative; width: 100%; max-width: 400px; margin: auto; height: 320px; background: #000; }
+        #qr-reader video { width: 100%; height: 100%; object-fit: cover; }
+        .scan-overlay { position: absolute; top:0; left:0; right:0; bottom:0; pointer-events:none; }
+        .scan-frame { position: absolute; top:50%; left:50%; width:80%; height:80px; transform: translate(-50%,-50%); border-radius:18px; box-sizing: border-box; }
+        .scan-corner { position: absolute; width: 28px; height: 28px; }
+        .scan-corner.tl { top:0; left:0; border-top:4px solid #00ff66; border-left:4px solid #00ff66; border-top-left-radius:18px; }
+        .scan-corner.tr { top:0; right:0; border-top:4px solid #00ff66; border-right:4px solid #00ff66; border-top-right-radius:18px; }
+        .scan-corner.bl { bottom:0; left:0; border-bottom:4px solid #00ff66; border-left:4px solid #00ff66; border-bottom-left-radius:18px; }
+        .scan-corner.br { bottom:0; right:0; border-bottom:4px solid #00ff66; border-right:4px solid #00ff66; border-bottom-right-radius:18px; }
+        .scan-dim { position: absolute; background: rgba(0,0,0,0.55); }
+        .scan-dim.top { left:0; right:0; top:0; height:32%; }
+        .scan-dim.bottom { left:0; right:0; bottom:0; height:32%; }
         .scan-dim.left { left:0; top:32%; bottom:32%; width:10%; }
         .scan-dim.right { right:0; top:32%; bottom:32%; width:10%; }
-        .scan-instruction {
-            position: absolute;
-            left: 50%;
-            top: calc(50% + 60px);
-            transform: translateX(-50%);
-            color: #fff;
-            font-size: 1.1rem;
-            text-shadow: 0 1px 4px #000;
-            width: 100%;
-            text-align: center;
-            z-index: 2;
-        }
+        .scan-instruction { position:absolute; left:50%; top:calc(50% + 60px); transform:translateX(-50%); color:#fff; font-size:1.1rem; text-shadow:0 1px 4px #000; width:100%; text-align:center; z-index:2; }
     </style>
 </head>
 <body>
@@ -523,6 +434,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <div class="invalid-feedback"><?php echo $item_number_err; ?></div>
                 <small class="form-text text-muted">เลขครุภัณฑ์จะถูกตรวจสอบความซ้ำซ้อนอัตโนมัติ</small>
             </div>
+
             <div class="mb-3">
                 <label for="serial_number" class="form-label">Serial Number <span class="text-danger">*</span></label>
                 <div class="input-group">
@@ -532,55 +444,59 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <div class="invalid-feedback"><?php echo $serial_number_err; ?></div>
                 <small class="form-text text-muted">Serial Number จะถูกตรวจสอบความซ้ำซ้อนอัตโนมัติ</small>
             </div>
+
             <div class="mb-3">
                 <label for="model_id" class="form-label">ชื่อรุ่น <span class="text-danger">*</span></label>
                 <div class="input-group">
                     <div class="me-2" style="flex:1;">
                         <input type="text" id="modelSearch" class="form-control mb-1" placeholder="ค้นหาชื่อรุ่น..." oninput="filterSelectOptions('modelSearch','model_id')">
                         <select class="form-select <?php echo !empty($model_id_err) ? 'is-invalid' : ''; ?>" id="model_id" name="model_id" required onchange="updateBrand()">
-                        <option value="">-- เลือกรุ่น --</option>
-                        <?php foreach ($models as $m): ?>
-                            <option value="<?php echo $m['model_id']; ?>" data-brand="<?php echo htmlspecialchars($m['brand_name']); ?>" <?php if ($model_id == $m['model_id']) echo 'selected'; ?>><?php echo htmlspecialchars($m['model_name']) . (isset($m['brand_name']) && $m['brand_name'] ? ' (' . htmlspecialchars($m['brand_name']) . ')' : ''); ?></option>
-                        <?php endforeach; ?>
+                            <option value="">-- เลือกรุ่น --</option>
+                            <?php foreach ($models as $m): ?>
+                                <option value="<?php echo $m['model_id']; ?>" data-brand="<?php echo htmlspecialchars($m['brand_name']); ?>" <?php if ($model_id == $m['model_id']) echo 'selected'; ?>>
+                                    <?php echo htmlspecialchars($m['model_name']) . (isset($m['brand_name']) && $m['brand_name'] ? ' (' . htmlspecialchars($m['brand_name']) . ')' : ''); ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                     <button type="button" class="btn btn-outline-primary" onclick="openModelModal()"><i class="fas fa-plus me-1"></i> จัดการ</button>
                 </div>
                 <div class="invalid-feedback"><?php echo $model_id_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="brand_name" class="form-label">ยี่ห้อ</label>
                 <div class="input-group">
-                    <input list="brandListD" type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="กำหนดจากรุ่นอัตโนมัติ" readonly>
-                    <datalist id="brandListD">
-                        <?php foreach ($brands as $b): ?>
-                            <option value="<?php echo htmlspecialchars($b['brand_name']); ?>"></option>
-                        <?php endforeach; ?>
-                    </datalist>
+                    <input type="text" class="form-control <?php echo !empty($brand_err) ? 'is-invalid' : ''; ?>" id="brand_name" name="brand" value="<?php echo htmlspecialchars($brand_name_display ? $brand_name_display : $brand); ?>" placeholder="กำหนดจากรุ่นอัตโนมัติ" readonly>
                     <button type="button" class="btn btn-outline-primary" onclick="openBrandModal()"><i class="fas fa-plus me-1"></i> จัดการ</button>
                 </div>
                 <div class="invalid-feedback"><?php echo $brand_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="description" class="form-label">รายละเอียด</label>
                 <textarea class="form-control" id="description" name="description" rows="2"><?php echo htmlspecialchars($description); ?></textarea>
             </div>
+
             <div class="mb-3">
                 <label for="category_id" class="form-label">หมวดหมู่ <span class="text-danger">*</span></label>
                 <div class="input-group">
                     <div class="me-2" style="flex:1;">
                         <input type="text" id="categorySearch" class="form-control mb-1" placeholder="ค้นหาหมวดหมู่..." oninput="filterSelectOptions('categorySearch','category_id')">
                         <select class="form-select <?php echo !empty($category_id_err) ? 'is-invalid' : ''; ?>" id="category_id" name="category_id" required>
-                        <option value="">-- เลือกหมวดหมู่ --</option>
-                        <?php foreach ($categories as $cat): ?>
-                            <option value="<?php echo $cat['category_id']; ?>" <?php if ($category_id == $cat['category_id']) echo 'selected'; ?>><?php echo htmlspecialchars($cat['category_name']); ?></option>
-                        <?php endforeach; ?>
+                            <option value="">-- เลือกหมวดหมู่ --</option>
+                            <?php foreach ($categories as $cat): ?>
+                                <option value="<?php echo $cat['category_id']; ?>" <?php if ($category_id == $cat['category_id']) echo 'selected'; ?>>
+                                    <?php echo htmlspecialchars($cat['category_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                     <button type="button" class="btn btn-outline-primary" onclick="openCategoryModal()"><i class="fas fa-plus me-1"></i> จัดการ</button>
                 </div>
                 <div class="invalid-feedback"><?php echo $category_id_err; ?></div>
             </div>
+
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label for="total_quantity" class="form-label">จำนวน <span class="text-danger">*</span></label>
@@ -593,6 +509,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     <div class="invalid-feedback"><?php echo $price_per_unit_err; ?></div>
                 </div>
             </div>
+
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label for="total_price" class="form-label">ราคารวม (บาท)</label>
@@ -601,18 +518,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
             </div>
 
-            <!-- ช่องติ๊กสถานะจำหน่าย(ส่งคืนพัสดุ) -->
             <div class="mb-3 form-check">
                 <input type="checkbox" class="form-check-input" id="is_disposed" name="is_disposed" <?php echo $is_disposed ? 'checked' : ''; ?>>
-                <label class="form-check-label" for="is_disposed">
-                    จำหน่าย (ส่งคืนพัสดุ)
-                </label>
+                <label class="form-check-label" for="is_disposed">จำหน่าย (ส่งคืนพัสดุ)</label>
             </div>
 
             <div class="mb-3">
                 <label for="location" class="form-label">ตำแหน่งที่ติดตั้ง</label>
                 <input type="text" class="form-control" id="location" name="location" value="<?php echo htmlspecialchars($location); ?>">
             </div>
+
             <div class="mb-3">
                 <label for="budget_year" class="form-label">ปีงบประมาณ <span class="text-danger">*</span></label>
                 <input type="text" class="form-control <?php echo !empty($budget_year_err) ? 'is-invalid' : ''; ?>" id="budget_year" name="budget_year" value="<?php echo htmlspecialchars($budget_year); ?>" maxlength="4" required>
@@ -623,10 +538,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <label for="purchase_date" class="form-label">วันที่จัดซื้อ</label>
                 <input type="date" class="form-control" id="purchase_date" name="purchase_date" value="<?php echo htmlspecialchars($purchase_date); ?>">
             </div>
+
+            <!-- รูปภาพ: เลือกหลายไฟล์ + ถ่ายจากกล้องหลายรูป -->
             <div class="mb-3">
                 <label for="images" class="form-label">รูปภาพ (หลายไฟล์)</label>
-                <input type="file" class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>" id="images" name="images[]" accept="image/*" multiple>
-                <small class="form-text text-muted">สามารถอัปโหลดได้หลายรูป (jpg, png, gif). รูปแรกจะถูกตั้งเป็นรูปหลักสำหรับความเข้ากันได้ย้อนหลัง.</small>
+
+                <div class="d-flex gap-2 mb-2">
+                    <button type="button" class="btn btn-success" onclick="openCameraModal()">
+                        <i class="fa-solid fa-camera me-1"></i> ถ่ายภาพด้วยกล้อง
+                    </button>
+                    <small class="text-muted align-self-center">หรือเลือกจากคลังภาพ</small>
+                </div>
+
+                <input
+                    type="file"
+                    class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>"
+                    id="images"
+                    name="images[]"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                >
+                <small class="form-text text-muted">
+                    รองรับหลายรูป (jpg, png, gif) — รูปที่ถ่ายในโมดัลจะถูกแนบที่นี่อัตโนมัติ
+                </small>
+
+                <!-- พรีวิวไฟล์ที่แนบ (ทั้งจากกล้องโมดัลและคลังภาพ) -->
+                <div id="cameraPreviewList" class="mt-2 d-flex flex-wrap gap-2"></div>
+
                 <div class="mt-2" id="existingImages">
                     <?php if (!empty($images)): ?>
                         <?php foreach ($images as $img): ?>
@@ -646,148 +585,177 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <div class="invalid-feedback"><?php echo $image_err; ?></div>
             </div>
+
             <div class="mb-3">
                 <label for="note" class="form-label">หมายเหตุ</label>
                 <textarea class="form-control" id="note" name="note" rows="2"><?php echo htmlspecialchars($note); ?></textarea>
             </div>
+
             <div class="d-flex justify-content-center mt-4">
                 <button type="submit" class="btn btn-main me-2"><i class="fas fa-save me-1"></i> <?php echo $is_edit ? 'บันทึกการแก้ไข' : 'เพิ่มครุภัณฑ์'; ?></button>
                 <a href="items.php" class="btn btn-secondary"><i class="fas fa-times-circle me-1"></i> ยกเลิก</a>
             </div>
         </form>
     </div>
+
+    <!-- Modal: Barcode/QR Scanner (Quagga) -->
     <div class="modal fade" id="scanModal" tabindex="-1" aria-labelledby="scanModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-        <div class="modal-header bg-success text-white">
+          <div class="modal-header bg-success text-white">
             <h5 class="modal-title" id="scanModalLabel"><i class="fas fa-qrcode me-2"></i> สแกนบาร์โค้ด/QR Code</h5>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body text-center">
+          </div>
+          <div class="modal-body text-center">
             <div id="qr-reader" style="width:100%; max-width:400px; margin: auto;"></div>
             <div class="text-muted small mb-2">กรุณาวางบาร์โค้ดให้อยู่ในกรอบแนวนอน และเพิ่มแสงสว่าง</div>
             <div id="qr-reader-results" class="mt-2 text-danger small"></div>
-        </div>
-        <div class="modal-footer">
+          </div>
+          <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+          </div>
         </div>
-        </div>
-    </div>
+      </div>
     </div>
 
-    <!-- Modal สำหรับจัดการหมวดหมู่ -->
+    <!-- Modal: จัดการหมวดหมู่ -->
     <div class="modal fade" id="categoryModal" tabindex="-1" aria-labelledby="categoryModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
-        <div class="modal-header bg-primary text-white">
+          <div class="modal-header bg-primary text-white">
             <h5 class="modal-title" id="categoryModalLabel"><i class="fas fa-tags me-2"></i> จัดการหมวดหมู่</h5>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
+          </div>
+          <div class="modal-body">
             <div class="row">
-            <div class="col-md-6">
+              <div class="col-md-6">
                 <h6>เพิ่มหมวดหมู่ใหม่</h6>
                 <form id="addCategoryForm">
-                <div class="mb-3">
+                  <div class="mb-3">
                     <label for="newCategoryName" class="form-label">ชื่อหมวดหมู่</label>
                     <input type="text" class="form-control" id="newCategoryName" required>
-                </div>
-                <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> เพิ่ม</button>
+                  </div>
+                  <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> เพิ่ม</button>
                 </form>
-            </div>
-            <div class="col-md-6">
+              </div>
+              <div class="col-md-6">
                 <h6>รายการหมวดหมู่</h6>
-                <div id="categoryList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                <!-- รายการหมวดหมู่จะถูกโหลดที่นี่ -->
-                </div>
+                <div id="categoryList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;"></div>
+              </div>
             </div>
-            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button></div>
         </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
-        </div>
-        </div>
-    </div>
+      </div>
     </div>
 
-    <!-- Modal สำหรับจัดการยี่ห้อ -->
+    <!-- Modal: จัดการยี่ห้อ -->
     <div class="modal fade" id="brandModal" tabindex="-1" aria-labelledby="brandModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
-        <div class="modal-header bg-info text-white">
+          <div class="modal-header bg-info text-white">
             <h5 class="modal-title" id="brandModalLabel"><i class="fas fa-trademark me-2"></i> จัดการยี่ห้อ</h5>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
+          </div>
+          <div class="modal-body">
             <div class="row">
-            <div class="col-md-6">
+              <div class="col-md-6">
                 <h6>เพิ่มยี่ห้อใหม่</h6>
                 <form id="addBrandForm">
-                <div class="mb-3">
+                  <div class="mb-3">
                     <label for="newBrandName" class="form-label">ชื่อยี่ห้อ</label>
                     <input type="text" class="form-control" id="newBrandName" required>
-                </div>
-                <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> เพิ่ม</button>
+                  </div>
+                  <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> เพิ่ม</button>
                 </form>
-            </div>
-            <div class="col-md-6">
+              </div>
+              <div class="col-md-6">
                 <h6>รายการยี่ห้อ</h6>
-                <div id="brandList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                <!-- รายการยี่ห้อจะถูกโหลดที่นี่ -->
-                </div>
+                <div id="brandList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;"></div>
+              </div>
             </div>
-            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button></div>
         </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
-        </div>
-        </div>
-    </div>
+      </div>
     </div>
 
-    <!-- Modal สำหรับจัดการชื่อรุ่น -->
+    <!-- Modal: จัดการชื่อรุ่น -->
     <div class="modal fade" id="modelModal" tabindex="-1" aria-labelledby="modelModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
-        <div class="modal-header bg-warning text-dark">
+          <div class="modal-header bg-warning text-dark">
             <h5 class="modal-title" id="modelModalLabel"><i class="fas fa-cube me-2"></i> จัดการชื่อรุ่น</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
+          </div>
+          <div class="modal-body">
             <div class="row">
-            <div class="col-md-6">
+              <div class="col-md-6">
                 <h6>เพิ่มรุ่นใหม่</h6>
                 <form id="addModelForm">
-                <div class="mb-3">
+                  <div class="mb-3">
                     <label for="newModelName" class="form-label">ชื่อรุ่น</label>
                     <input type="text" class="form-control" id="newModelName" required>
-                </div>
-                <div class="mb-3">
+                  </div>
+                  <div class="mb-3">
                     <label for="newModelBrand" class="form-label">ยี่ห้อ</label>
                     <select class="form-select" id="newModelBrand" required>
-                    <option value="">-- เลือกยี่ห้อ --</option>
-                    <!-- รายการยี่ห้อจะถูกโหลดที่นี่ -->
+                      <option value="">-- เลือกยี่ห้อ --</option>
                     </select>
-                </div>
-                <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> เพิ่ม</button>
+                  </div>
+                  <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> เพิ่ม</button>
                 </form>
-            </div>
-            <div class="col-md-6">
+              </div>
+              <div class="col-md-6">
                 <h6>รายการรุ่น</h6>
-                <div id="modelList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                <!-- รายการรุ่นจะถูกโหลดที่นี่ -->
-                </div>
+                <div id="modelList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;"></div>
+              </div>
             </div>
-            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button></div>
         </div>
-        <div class="modal-footer">
+      </div>
+    </div>
+
+    <!-- Modal: Camera Capture (หลายภาพ) -->
+    <div class="modal fade" id="cameraModal" tabindex="-1" aria-labelledby="cameraModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title" id="cameraModalLabel"><i class="fa-solid fa-camera me-2"></i> ถ่ายภาพด้วยกล้อง (หลายภาพ)</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="ratio ratio-16x9 bg-dark rounded">
+              <video id="camStream" autoplay playsinline muted style="object-fit:cover;"></video>
+            </div>
+            <div class="d-flex justify-content-center gap-2 my-3">
+              <button type="button" class="btn btn-outline-light text-dark border" id="switchCameraBtn" title="สลับกล้อง">
+                <i class="fa-solid fa-camera-rotate me-1"></i> สลับกล้อง
+              </button>
+              <button type="button" class="btn btn-primary" id="takePhotoBtn">
+                <i class="fa-solid fa-circle-dot me-1"></i> ถ่ายภาพ
+              </button>
+            </div>
+            <div>
+              <h6 class="mb-2">ภาพที่ถ่ายไว้</h6>
+              <div id="shotList" class="d-flex flex-wrap gap-2"></div>
+              <small class="text-muted d-block mt-1">สามารถลบแต่ละรูปก่อนบันทึกได้</small>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <div class="me-auto text-muted small" id="cameraHint">ระบบจะบีบอัดและปรับขนาดภาพอัตโนมัติก่อนแนบ</div>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+            <button type="button" class="btn btn-success" id="attachShotsBtn"><i class="fa-solid fa-paperclip me-1"></i> แนบภาพที่ถ่ายเข้าฟอร์ม</button>
+          </div>
         </div>
-        </div>
+      </div>
     </div>
-    </div>
+
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+
     <script>
     function filterSelectOptions(searchInputId, selectId) {
         var term = document.getElementById(searchInputId).value.toLowerCase();
@@ -796,58 +764,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         for (var i = 0; i < sel.options.length; i++) {
             var txt = sel.options[i].text.toLowerCase();
             var visible = txt.indexOf(term) !== -1;
-            // hide on desktop filtering; mobile native pickers may ignore display:none
             sel.options[i].style.display = visible ? '' : 'none';
             if (visible && firstMatchIndex === -1) firstMatchIndex = i;
         }
-        // Auto-select first match to help mobile users who cannot see filtered options
         if (firstMatchIndex !== -1) {
             sel.selectedIndex = firstMatchIndex;
         } else {
-            // reset to empty option if no match
             for (var j = 0; j < sel.options.length; j++) {
                 if (sel.options[j].value === '') { sel.selectedIndex = j; break; }
             }
         }
-        // If model select changed, update dependent fields
         try { if (selectId === 'model_id') updateBrand(); } catch(e){}
     }
-    // On mobile, many browsers show native select pickers and ignore option display.
-    // Provide an extra handler to pick the first matching option on blur/change.
-    // ล็อกช่องยี่ห้อให้พิมพ์ไม่ได้ และไม่สามารถเปิดรายการ datalist ได้
+
+    // ล็อกช่องยี่ห้อให้อ่านอย่างเดียว
     document.addEventListener('DOMContentLoaded', function () {
         var brandInput = document.getElementById('brand_name');
         if (!brandInput) return;
-
-        // กันพิมพ์ + กันเปิดรายการ
-        brandInput.readOnly = true;                  // กันพิมพ์ แต่ยัง submit ได้
-        brandInput.removeAttribute('list');          // ไม่ให้เปิด datalist
-        brandInput.style.background = '#e9ecef';     // โทนสีแบบ disabled
+        brandInput.readOnly = true;
+        brandInput.style.background = '#e9ecef';
         brandInput.style.cursor = 'not-allowed';
-        brandInput.style.pointerEvents = 'none';     // กันคลิก/โฟกัสจากเมาส์บนบางเบราว์เซอร์
+        brandInput.style.pointerEvents = 'none';
     });
+
     document.addEventListener('DOMContentLoaded', function(){
-        // ensure brand_display/updateBrand runs
         updateBrand();
     });
     </script>
+
     <script>
-        // คำนวณราคารวมอัตโนมัติ
+        // คำนวณราคารวม
         function calculateTotalPrice() {
             const quantity = parseFloat(document.getElementById('total_quantity').value) || 0;
             const pricePerUnit = parseFloat(document.getElementById('price_per_unit').value) || 0;
             const totalPrice = quantity * pricePerUnit;
             document.getElementById('total_price').value = totalPrice.toFixed(2);
         }
-
-        // เพิ่ม event listeners
         document.getElementById('total_quantity').addEventListener('input', calculateTotalPrice);
         document.getElementById('price_per_unit').addEventListener('input', calculateTotalPrice);
-
-        // คำนวณครั้งแรกเมื่อโหลดหน้า
         document.addEventListener('DOMContentLoaded', calculateTotalPrice);
 
-        // อัปเดตยี่ห้อตามชื่อรุ่นที่เลือก
+        // อัปเดตยี่ห้อตามรุ่น
         function updateBrand() {
             var modelSelect = document.getElementById('model_id');
             var brandInput = document.getElementById('brand_name'); 
@@ -860,86 +817,54 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // ตรวจสอบข้อมูลซ้ำแบบ real-time
         function checkDuplicateData(fieldName, value, currentItemId) {
             if (!value) return;
-            
             fetch('check_duplicate.php', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: 'field=' + fieldName + '&value=' + encodeURIComponent(value) + '&item_id=' + currentItemId
             })
             .then(response => response.json())
             .then(data => {
                 const inputField = document.getElementById(fieldName);
                 const feedbackDiv = inputField.parentNode.querySelector('.invalid-feedback');
-                
                 if (data.duplicate) {
                     inputField.classList.add('is-invalid');
-                    if (feedbackDiv) {
-                        feedbackDiv.textContent = data.message;
-                    }
+                    if (feedbackDiv) feedbackDiv.textContent = data.message;
                 } else {
                     inputField.classList.remove('is-invalid');
-                    if (feedbackDiv) {
-                        feedbackDiv.textContent = '';
-                    }
+                    if (feedbackDiv) feedbackDiv.textContent = '';
                 }
             })
-            .catch(error => {
-                console.error('Error checking duplicate:', error);
-            });
+            .catch(error => { console.error('Error checking duplicate:', error); });
         }
 
-        // เพิ่ม event listeners สำหรับตรวจสอบข้อมูลซ้ำ
         document.addEventListener('DOMContentLoaded', function() {
             const serialNumberInput = document.getElementById('serial_number');
             const itemNumberInput = document.getElementById('item_number');
             const currentItemId = '<?php echo $item_id; ?>';
-            
+
             if (serialNumberInput) {
-                serialNumberInput.addEventListener('blur', function() {
-                    checkDuplicateData('serial_number', this.value, currentItemId);
-                });
+                serialNumberInput.addEventListener('blur', function() { checkDuplicateData('serial_number', this.value, currentItemId); });
                 serialNumberInput.addEventListener('input', function() {
-                    // ลบ error state เมื่อผู้ใช้เริ่มพิมพ์
                     this.classList.remove('is-invalid');
                     const feedbackDiv = this.parentNode.querySelector('.invalid-feedback');
-                    if (feedbackDiv) {
-                        feedbackDiv.textContent = '';
-                    }
+                    if (feedbackDiv) feedbackDiv.textContent = '';
                 });
             }
-            
             if (itemNumberInput) {
-                itemNumberInput.addEventListener('blur', function() {
-                    checkDuplicateData('item_number', this.value, currentItemId);
-                });
+                itemNumberInput.addEventListener('blur', function() { checkDuplicateData('item_number', this.value, currentItemId); });
                 itemNumberInput.addEventListener('input', function() {
-                    // ลบ error state เมื่อผู้ใช้เริ่มพิมพ์
                     this.classList.remove('is-invalid');
                     const feedbackDiv = this.parentNode.querySelector('.invalid-feedback');
-                    if (feedbackDiv) {
-                        feedbackDiv.textContent = '';
-                    }
+                    if (feedbackDiv) feedbackDiv.textContent = '';
                 });
             }
-            
-            // ตรวจสอบก่อนส่งฟอร์ม
+
             const form = document.querySelector('form');
             if (form) {
                 form.addEventListener('submit', function(e) {
                     let hasError = false;
-                    
-                    // ตรวจสอบ Serial Number
-                    if (serialNumberInput && serialNumberInput.classList.contains('is-invalid')) {
-                        hasError = true;
-                    }
-                    
-                    // ตรวจสอบ Item Number
-                    if (itemNumberInput && itemNumberInput.classList.contains('is-invalid')) {
-                        hasError = true;
-                    }
-                    
+                    if (serialNumberInput && serialNumberInput.classList.contains('is-invalid')) hasError = true;
+                    if (itemNumberInput && itemNumberInput.classList.contains('is-invalid')) hasError = true;
                     if (hasError) {
                         e.preventDefault();
                         alert('กรุณาแก้ไขข้อผิดพลาดก่อนส่งฟอร์ม');
@@ -949,8 +874,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         });
 
-
-        // --- Barcode Scanner Logic (QuaggaJS) ---
+        // --- Barcode Scanner (Quagga) ---
         let scanTargetInputId = null;
         function openScannerQuagga(targetInputId) {
             scanTargetInputId = targetInputId;
@@ -971,15 +895,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         height: { ideal: 720 }
                     }
                 },
-                decoder: {
-                    readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "upc_reader", "upc_e_reader"]
-                },
+                decoder: { readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "upc_reader", "upc_e_reader"] },
                 locate: true
             }, function(err) {
                 if (err) {
                     document.getElementById('qr-reader-results').innerHTML = '<div class="text-danger">ไม่สามารถเปิดกล้องได้: ' + err + '</div>';
-                return;
-            }
+                    return;
+                }
                 Quagga.start();
                 setTimeout(() => {
                     const qrReader = document.getElementById('qr-reader');
@@ -1004,34 +926,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }, 500);
             });
 
-            // --- Confirm Detection ---
             let lastCode = '';
             let sameCodeCount = 0;
-            const confirmThreshold = 2; // ต้องเจอซ้ำกันกี่ครั้งถึงจะยืนยัน
+            const confirmThreshold = 2;
 
             Quagga.onDetected(function(result) {
                 if (result && result.codeResult && result.codeResult.code) {
                     let code = result.codeResult.code.trim();
-                    if (code === lastCode) {
-                        sameCodeCount++;
-                    } else {
-                        lastCode = code;
-                        sameCodeCount = 1;
-                    }
+                    if (code === lastCode) { sameCodeCount++; } else { lastCode = code; sameCodeCount = 1; }
                     if (sameCodeCount >= confirmThreshold) {
                         document.getElementById('qr-reader-results').innerHTML = '<div class="text-success">สแกนสำเร็จ: ' + code + '</div>';
                         setTimeout(() => {
-                            if (scanTargetInputId) {
-                                document.getElementById(scanTargetInputId).value = code;
-                            }
+                            if (scanTargetInputId) document.getElementById(scanTargetInputId).value = code;
                             Quagga.stop();
-                                    const modal = bootstrap.Modal.getInstance(document.getElementById('scanModal'));
-                                    modal.hide();
-                                    document.getElementById('qr-reader-results').innerHTML = '';
-                            lastCode = '';
-                            sameCodeCount = 0;
-                        }, 1000);
-                } else {
+                            const modal = bootstrap.Modal.getInstance(document.getElementById('scanModal'));
+                            modal.hide();
+                            document.getElementById('qr-reader-results').innerHTML = '';
+                            lastCode = ''; sameCodeCount = 0;
+                        }, 800);
+                    } else {
                         document.getElementById('qr-reader-results').innerHTML = '<div class="text-warning">กำลังจับโฟกัส... (' + sameCodeCount + '/' + confirmThreshold + ')</div>';
                     }
                 }
@@ -1039,444 +952,292 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
 
         document.getElementById('scanModal').addEventListener('hidden.bs.modal', function () {
-            if (Quagga) {
-                Quagga.stop();
-            }
+            if (Quagga) Quagga.stop();
             document.getElementById('qr-reader-results').innerHTML = '';
             const overlay = document.querySelector('.scan-overlay');
-            if (overlay) {
-                overlay.remove();
-            }
+            if (overlay) overlay.remove();
             scanTargetInputId = null;
         });
 
-        // --- Modal Management Functions ---
-        
-        // เปิดโมดัลจัดการหมวดหมู่
-        function openCategoryModal() {
-            loadCategories();
-            const modal = new bootstrap.Modal(document.getElementById('categoryModal'));
-            modal.show();
-        }
+        // --- Modal Management: categories / brands / models ---
+        function openCategoryModal() { loadCategories(); const m = new bootstrap.Modal(document.getElementById('categoryModal')); m.show(); }
+        function openBrandModal()    { loadBrands();    const m = new bootstrap.Modal(document.getElementById('brandModal'));    m.show(); }
+        function openModelModal()    { loadModels(); loadBrandsForModel(); const m = new bootstrap.Modal(document.getElementById('modelModal')); m.show(); }
 
-        // เปิดโมดัลจัดการยี่ห้อ
-        function openBrandModal() {
-            loadBrands();
-            const modal = new bootstrap.Modal(document.getElementById('brandModal'));
-            modal.show();
-        }
-
-        // เปิดโมดัลจัดการชื่อรุ่น
-        function openModelModal() {
-            loadModels();
-            loadBrandsForModel();
-            const modal = new bootstrap.Modal(document.getElementById('modelModal'));
-            modal.show();
-        }
-
-        // โหลดรายการหมวดหมู่
         function loadCategories() {
-            fetch('get_categories.php')
-                .then(response => response.json())
-                .then(data => {
-                    const categoryList = document.getElementById('categoryList');
-                    categoryList.innerHTML = '';
-                    
-                    if (data.length === 0) {
-                        categoryList.innerHTML = '<p class="text-muted">ไม่มีหมวดหมู่</p>';
-                        return;
-                    }
-                    
-                    data.forEach(category => {
-                        const div = document.createElement('div');
-                        div.className = 'd-flex justify-content-between align-items-center mb-2 p-2 border-bottom';
-                        div.innerHTML = `
-                            <span>${category.category_name}</span>
-                            <button type="button" class="btn btn-sm btn-danger" onclick="deleteCategory(${category.category_id})">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        `;
-                        categoryList.appendChild(div);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error loading categories:', error);
-                    document.getElementById('categoryList').innerHTML = '<p class="text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</p>';
+            fetch('get_categories.php').then(r=>r.json()).then(data=>{
+                const box = document.getElementById('categoryList'); box.innerHTML='';
+                if (!data.length) { box.innerHTML = '<p class="text-muted">ไม่มีหมวดหมู่</p>'; return; }
+                data.forEach(c=>{
+                    const div=document.createElement('div');
+                    div.className='d-flex justify-content-between align-items-center mb-2 p-2 border-bottom';
+                    div.innerHTML = `<span>${c.category_name}</span>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="deleteCategory(${c.category_id})"><i class="fas fa-trash"></i></button>`;
+                    box.appendChild(div);
                 });
+            }).catch(_=>{ document.getElementById('categoryList').innerHTML='<p class="text-danger">เกิดข้อผิดพลาด</p>'; });
         }
-
-        // โหลดรายการยี่ห้อ
         function loadBrands() {
-            fetch('get_brands.php')
-                .then(response => response.json())
-                .then(data => {
-                    const brandList = document.getElementById('brandList');
-                    brandList.innerHTML = '';
-                    
-                    if (data.length === 0) {
-                        brandList.innerHTML = '<p class="text-muted">ไม่มียี่ห้อ</p>';
-                        return;
-                    }
-                    
-                    data.forEach(brand => {
-                        const div = document.createElement('div');
-                        div.className = 'd-flex justify-content-between align-items-center mb-2 p-2 border-bottom';
-                        div.innerHTML = `
-                            <span>${brand.brand_name}</span>
-                            <button type="button" class="btn btn-sm btn-danger" onclick="deleteBrand(${brand.brand_id})">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        `;
-                        brandList.appendChild(div);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error loading brands:', error);
-                    document.getElementById('brandList').innerHTML = '<p class="text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</p>';
+            fetch('get_brands.php').then(r=>r.json()).then(data=>{
+                const box=document.getElementById('brandList'); box.innerHTML='';
+                if (!data.length) { box.innerHTML = '<p class="text-muted">ไม่มียี่ห้อ</p>'; return; }
+                data.forEach(b=>{
+                    const div=document.createElement('div');
+                    div.className='d-flex justify-content-between align-items-center mb-2 p-2 border-bottom';
+                    div.innerHTML = `<span>${b.brand_name}</span>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="deleteBrand(${b.brand_id})"><i class="fas fa-trash"></i></button>`;
+                    box.appendChild(div);
                 });
+            }).catch(_=>{ document.getElementById('brandList').innerHTML='<p class="text-danger">เกิดข้อผิดพลาด</p>'; });
         }
-
-        // โหลดรายการยี่ห้อสำหรับโมดัลรุ่น
         function loadBrandsForModel() {
-            fetch('get_brands.php')
-                .then(response => response.json())
-                .then(data => {
-                    const brandSelect = document.getElementById('newModelBrand');
-                    brandSelect.innerHTML = '<option value="">-- เลือกยี่ห้อ --</option>';
-                    
-                    data.forEach(brand => {
-                        const option = document.createElement('option');
-                        option.value = brand.brand_id;
-                        option.textContent = brand.brand_name;
-                        brandSelect.appendChild(option);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error loading brands for model:', error);
+            fetch('get_brands.php').then(r=>r.json()).then(data=>{
+                const sel=document.getElementById('newModelBrand'); sel.innerHTML = '<option value="">-- เลือกยี่ห้อ --</option>';
+                data.forEach(b=>{
+                    const op=document.createElement('option'); op.value=b.brand_id; op.textContent=b.brand_name; sel.appendChild(op);
                 });
+            });
         }
-
-        // โหลดรายการรุ่น
         function loadModels() {
-            fetch('get_models.php')
-                .then(response => response.json())
-                .then(data => {
-                    const modelList = document.getElementById('modelList');
-                    modelList.innerHTML = '';
-                    
-                    if (data.length === 0) {
-                        modelList.innerHTML = '<p class="text-muted">ไม่มีรุ่น</p>';
-                        return;
-                    }
-                    
-                    data.forEach(model => {
-                        const div = document.createElement('div');
-                        div.className = 'd-flex justify-content-between align-items-center mb-2 p-2 border-bottom';
-                        div.innerHTML = `
-                            <div>
-                                <strong>${model.model_name}</strong>
-                                ${model.brand_name ? `<br><small class="text-muted">${model.brand_name}</small>` : ''}
-                            </div>
-                            <button type="button" class="btn btn-sm btn-danger" onclick="deleteModel(${model.model_id})">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        `;
-                        modelList.appendChild(div);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error loading models:', error);
-                    document.getElementById('modelList').innerHTML = '<p class="text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</p>';
+            fetch('get_models.php').then(r=>r.json()).then(data=>{
+                const box=document.getElementById('modelList'); box.innerHTML='';
+                if (!data.length) { box.innerHTML = '<p class="text-muted">ไม่มีรุ่น</p>'; return; }
+                data.forEach(m=>{
+                    const div=document.createElement('div');
+                    div.className='d-flex justify-content-between align-items-center mb-2 p-2 border-bottom';
+                    div.innerHTML = `<div><strong>${m.model_name}</strong>${m.brand_name ? `<br><small class="text-muted">${m.brand_name}</small>`:''}</div>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="deleteModel(${m.model_id})"><i class="fas fa-trash"></i></button>`;
+                    box.appendChild(div);
                 });
+            }).catch(_=>{ document.getElementById('modelList').innerHTML='<p class="text-danger">เกิดข้อผิดพลาด</p>'; });
         }
 
-        // เพิ่มหมวดหมู่ใหม่
-        document.getElementById('addCategoryForm').addEventListener('submit', function(e) {
+        document.getElementById('addCategoryForm')?.addEventListener('submit', function(e){
             e.preventDefault();
-            const categoryName = document.getElementById('newCategoryName').value.trim();
-            
-            if (!categoryName) return;
-            
-            fetch('add_category.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'category_name=' + encodeURIComponent(categoryName)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    document.getElementById('newCategoryName').value = '';
-                    loadCategories();
-                    refreshCategorySelect();
-                    alert('เพิ่มหมวดหมู่สำเร็จ!');
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error adding category:', error);
-                alert('เกิดข้อผิดพลาดในการเพิ่มหมวดหมู่');
-            });
+            const name = document.getElementById('newCategoryName').value.trim(); if (!name) return;
+            fetch('add_category.php',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'category_name='+encodeURIComponent(name)})
+            .then(r=>r.json()).then(d=>{
+                if (d.success){ document.getElementById('newCategoryName').value=''; loadCategories(); refreshCategorySelect(); alert('เพิ่มหมวดหมู่สำเร็จ!'); }
+                else alert('เกิดข้อผิดพลาด: '+d.message);
+            }).catch(_=>alert('เกิดข้อผิดพลาดในการเพิ่มหมวดหมู่'));
         });
 
-        // เพิ่มยี่ห้อใหม่
-        document.getElementById('addBrandForm').addEventListener('submit', function(e) {
+        document.getElementById('addBrandForm')?.addEventListener('submit', function(e){
             e.preventDefault();
-            const brandName = document.getElementById('newBrandName').value.trim();
-            
-            if (!brandName) return;
-            
-            fetch('add_brand.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'brand_name=' + encodeURIComponent(brandName)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    document.getElementById('newBrandName').value = '';
-                    loadBrands();
-                    loadBrandsForModel();
-                    alert('เพิ่มยี่ห้อสำเร็จ!');
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error adding brand:', error);
-                alert('เกิดข้อผิดพลาดในการเพิ่มยี่ห้อ');
-            });
+            const name = document.getElementById('newBrandName').value.trim(); if (!name) return;
+            fetch('add_brand.php',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'brand_name='+encodeURIComponent(name)})
+            .then(r=>r.json()).then(d=>{
+                if (d.success){ document.getElementById('newBrandName').value=''; loadBrands(); loadBrandsForModel(); alert('เพิ่มยี่ห้อสำเร็จ!'); }
+                else alert('เกิดข้อผิดพลาด: '+d.message);
+            }).catch(_=>alert('เกิดข้อผิดพลาดในการเพิ่มยี่ห้อ'));
         });
 
-        // เพิ่มรุ่นใหม่
-        document.getElementById('addModelForm').addEventListener('submit', function(e) {
+        document.getElementById('addModelForm')?.addEventListener('submit', function(e){
             e.preventDefault();
-            const modelName = document.getElementById('newModelName').value.trim();
-            const brandId = document.getElementById('newModelBrand').value;
-            
-            if (!modelName || !brandId) return;
-            
-            fetch('add_model.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'model_name=' + encodeURIComponent(modelName) + '&brand_id=' + brandId
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    document.getElementById('newModelName').value = '';
-                    document.getElementById('newModelBrand').value = '';
-                    loadModels();
-                    refreshModelSelect();
-                    alert('เพิ่มรุ่นสำเร็จ!');
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error adding model:', error);
-                alert('เกิดข้อผิดพลาดในการเพิ่มรุ่น');
-            });
+            const mname = document.getElementById('newModelName').value.trim();
+            const bid = document.getElementById('newModelBrand').value;
+            if (!mname || !bid) return;
+            fetch('add_model.php', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'model_name='+encodeURIComponent(mname)+'&brand_id='+bid})
+            .then(r=>r.json()).then(d=>{
+                if (d.success){ document.getElementById('newModelName').value=''; document.getElementById('newModelBrand').value=''; loadModels(); refreshModelSelect(); alert('เพิ่มรุ่นสำเร็จ!'); }
+                else alert('เกิดข้อผิดพลาด: '+d.message);
+            }).catch(_=>alert('เกิดข้อผิดพลาดในการเพิ่มรุ่น'));
         });
 
-        // ลบหมวดหมู่
-        function deleteCategory(categoryId) {
+        function deleteCategory(id){
             if (!confirm('คุณแน่ใจหรือไม่ที่จะลบหมวดหมู่นี้?')) return;
-            
-            fetch('delete_category.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'category_id=' + categoryId
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    loadCategories();
-                    refreshCategorySelect();
-                    alert('ลบหมวดหมู่สำเร็จ!');
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error deleting category:', error);
-                alert('เกิดข้อผิดพลาดในการลบหมวดหมู่');
-            });
+            fetch('delete_category.php',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'category_id='+id})
+            .then(r=>r.json()).then(d=>{
+                if (d.success){ loadCategories(); refreshCategorySelect(); alert('ลบหมวดหมู่สำเร็จ!'); }
+                else alert('เกิดข้อผิดพลาด: '+d.message);
+            }).catch(_=>alert('เกิดข้อผิดพลาดในการลบหมวดหมู่'));
         }
-
-        // ลบยี่ห้อ
-        function deleteBrand(brandId) {
+        function deleteBrand(id){
             if (!confirm('คุณแน่ใจหรือไม่ที่จะลบยี่ห้อนี้?')) return;
-            
-            fetch('delete_brand.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'brand_id=' + brandId
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    loadBrands();
-                    loadBrandsForModel();
-                    alert('ลบยี่ห้อสำเร็จ!');
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error deleting brand:', error);
-                alert('เกิดข้อผิดพลาดในการลบยี่ห้อ');
-            });
+            fetch('delete_brand.php',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'brand_id='+id})
+            .then(r=>r.json()).then(d=>{
+                if (d.success){ loadBrands(); loadBrandsForModel(); alert('ลบยี่ห้อสำเร็จ!'); }
+                else alert('เกิดข้อผิดพลาด: '+d.message);
+            }).catch(_=>alert('เกิดข้อผิดพลาดในการลบยี่ห้อ'));
         }
-
-        // ลบรุ่น
-        function deleteModel(modelId) {
+        function deleteModel(id){
             if (!confirm('คุณแน่ใจหรือไม่ที่จะลบรุ่นนี้?')) return;
-            
-            fetch('delete_model.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'model_id=' + modelId
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    loadModels();
-                    refreshModelSelect();
-                    alert('ลบรุ่นสำเร็จ!');
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error deleting model:', error);
-                alert('เกิดข้อผิดพลาดในการลบรุ่น');
+            fetch('delete_model.php',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'model_id='+id})
+            .then(r=>r.json()).then(d=>{
+                if (d.success){ loadModels(); refreshModelSelect(); alert('ลบรุ่นสำเร็จ!'); }
+                else alert('เกิดข้อผิดพลาด: '+d.message);
+            }).catch(_=>alert('เกิดข้อผิดพลาดในการลบรุ่น'));
+        }
+
+        function refreshCategorySelect(){
+            fetch('get_categories.php').then(r=>r.json()).then(data=>{
+                const select = document.getElementById('category_id'); const currentValue = select.value;
+                select.innerHTML = '<option value="">-- เลือกหมวดหมู่ --</option>';
+                data.forEach(c=>{
+                    const op=document.createElement('option'); op.value=c.category_id; op.textContent=c.category_name;
+                    if (c.category_id == currentValue) op.selected = true;
+                    select.appendChild(op);
+                });
+            });
+        }
+        function refreshModelSelect(){
+            fetch('get_models.php').then(r=>r.json()).then(data=>{
+                const select = document.getElementById('model_id'); const currentValue = select.value;
+                select.innerHTML = '<option value="">-- เลือกรุ่น --</option>';
+                data.forEach(m=>{
+                    const op=document.createElement('option');
+                    op.value=m.model_id; op.setAttribute('data-brand', m.brand_name || '');
+                    op.textContent = m.model_name + (m.brand_name ? ' ('+m.brand_name+')' : '');
+                    if (m.model_id == currentValue) op.selected = true;
+                    select.appendChild(op);
+                });
+                updateBrand();
             });
         }
 
-        // รีเฟรช select หมวดหมู่
-        function refreshCategorySelect() {
-            fetch('get_categories.php')
-                .then(response => response.json())
-                .then(data => {
-                    const select = document.getElementById('category_id');
-                    const currentValue = select.value;
-                    
-                    select.innerHTML = '<option value="">-- เลือกหมวดหมู่ --</option>';
-                    data.forEach(category => {
-                        const option = document.createElement('option');
-                        option.value = category.category_id;
-                        option.textContent = category.category_name;
-                        if (category.category_id == currentValue) {
-                            option.selected = true;
-                        }
-                        select.appendChild(option);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error refreshing category select:', error);
-                });
-        }
+        // ====== Camera Capture (Multi-shot) ======
+        let camStream = null;
+        let usingFacingMode = 'environment';
+        const maxShots = 15;
+        const maxWidth = 1600;
+        const jpegQuality = 0.85;
 
-        // รีเฟรช select รุ่น
-        function refreshModelSelect() {
-            fetch('get_models.php')
-                .then(response => response.json())
-                .then(data => {
-                    const select = document.getElementById('model_id');
-                    const currentValue = select.value;
-                    
-                    select.innerHTML = '<option value="">-- เลือกรุ่น --</option>';
-                    data.forEach(model => {
-                        const option = document.createElement('option');
-                        option.value = model.model_id;
-                        option.setAttribute('data-brand', model.brand_name || '');
-                        option.textContent = model.model_name + (model.brand_name ? ' (' + model.brand_name + ')' : '');
-                        if (model.model_id == currentValue) {
-                            option.selected = true;
-                        }
-                        select.appendChild(option);
-                    });
-                    
-                    // อัปเดตยี่ห้อหลังจากรีเฟรช
-                    updateBrand();
-                })
-                .catch(error => {
-                    console.error('Error refreshing model select:', error);
-                });
-        }
+        const els = { modal:null, video:null, shotList:null, takeBtn:null, attachBtn:null, switchBtn:null, fileInput:null, formPreview:null };
+        const shotBlobs = [];
 
-        // Force-lock brand visually and for form submission: disable visible input but keep a hidden input named 'brand' so value posts.
-document.addEventListener('DOMContentLoaded', function(){
-    try {
-        // hide any brand search box(s)
-        var bs = document.getElementById('brandSearch');
-        if (bs) {
-            bs.style.display = 'none';
-            bs.setAttribute('aria-hidden','true');
-            bs.tabIndex = -1;
-        }
-        document.querySelectorAll('.brand-search, [data-search-for="brand"], input[name="brandSearch"]').forEach(function(el){
-            el.style.display = 'none';
-            el.setAttribute('aria-hidden','true');
-            try{ el.tabIndex = -1; }catch(e){}
+        function qs(id){ return document.getElementById(id); }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            els.modal      = qs('cameraModal');
+            els.video      = qs('camStream');
+            els.shotList   = qs('shotList');
+            els.takeBtn    = qs('takePhotoBtn');
+            els.attachBtn  = qs('attachShotsBtn');
+            els.switchBtn  = qs('switchCameraBtn');
+            els.fileInput  = qs('images');
+            els.formPreview= qs('cameraPreviewList');
+
+            els.takeBtn.addEventListener('click', takePhoto);
+            els.attachBtn.addEventListener('click', attachShotsToForm);
+            els.switchBtn.addEventListener('click', switchCamera);
+            els.modal.addEventListener('hidden.bs.modal', stopCamera);
+
+            // เมื่อผู้ใช้เลือกไฟล์จากคลังภาพ แสดงพรีวิว
+            els.fileInput.addEventListener('change', renderFormCameraPreview);
         });
 
-        // hide buttons that open brand modal
-        document.querySelectorAll('[data-bs-target="#brandModal"], .open-brand-modal, .btn-brand-modal').forEach(function(el){
-            el.style.display = 'none';
-            el.setAttribute('aria-hidden','true');
-            try{ el.tabIndex = -1; }catch(e){}
-        });
-
-        // lock visible brand input
-        var brandInput = document.getElementById('brand');
-        if (brandInput) {
-            brandInput.disabled = true; // fully inert
-            brandInput.style.background = '#e9ecef';
-            brandInput.style.cursor = 'not-allowed';
-            brandInput.style.pointerEvents = 'none';
-            brandInput.setAttribute('aria-disabled','true');
-            brandInput.tabIndex = -1;
-
-            // ensure a hidden input exists to submit the brand value
-            var hidden = document.querySelector('input[type="hidden"][name="brand"][data-internal="brand-hidden"]');
-            if (!hidden) {
-                hidden = document.createElement('input');
-                hidden.type = 'hidden';
-                hidden.name = 'brand';
-                hidden.setAttribute('data-internal','brand-hidden');
-                brandInput.parentNode.insertBefore(hidden, brandInput.nextSibling);
-            }
-            // sync function
-            function sync(){ hidden.value = brandInput.value || ''; }
-            sync();
-            // wrap updateBrand if present
-            if (typeof window.updateBrand === 'function') {
-                var _u = window.updateBrand;
-                window.updateBrand = function(){
-                    var r = _u.apply(this, arguments);
-                    sync();
-                    return r;
-                }
-            }
-            // short poll to catch programmatic changes
-            var c = 0, t = setInterval(function(){ sync(); c++; if (c>20) clearInterval(t); }, 200);
+        function openCameraModal(){
+            const modal = new bootstrap.Modal(qs('cameraModal'));
+            modal.show();
+            startCameraStream(usingFacingMode);
         }
-    } catch(e){ console && console.warn && console.warn('brand full-lock error', e); }
-});
+        async function startCameraStream(facingMode){
+            try{
+                stopCamera();
+                camStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: facingMode }, width:{ideal:1280}, height:{ideal:720} },
+                    audio: false
+                });
+                els.video.srcObject = camStream;
+            }catch(err){ alert('เปิดกล้องไม่สำเร็จ: ' + err.message); }
+        }
+        function stopCamera(){
+            if (camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream = null; }
+        }
+        function switchCamera(){
+            usingFacingMode = (usingFacingMode === 'environment') ? 'user' : 'environment';
+            startCameraStream(usingFacingMode);
+        }
+        async function takePhoto(){
+            if (!camStream) return;
+            if (shotBlobs.length >= maxShots) return alert('ถ่ายได้ไม่เกิน '+maxShots+' ภาพต่อครั้ง');
+
+            const track = camStream.getVideoTracks()[0];
+            const settings = track.getSettings ? track.getSettings() : {};
+            const vw = els.video.videoWidth || settings.width || 1280;
+            const vh = els.video.videoHeight|| settings.height|| 720;
+
+            const scale = Math.min(1, maxWidth / vw);
+            const cw = Math.round(vw * scale);
+            const ch = Math.round(vh * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = cw; canvas.height = ch;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(els.video, 0, 0, cw, ch);
+
+            canvas.toBlob((blob) => {
+                if (!blob) return;
+                shotBlobs.push(blob);
+                addShotThumb(blob);
+            }, 'image/jpeg', jpegQuality);
+        }
+        function addShotThumb(blob){
+            const url = URL.createObjectURL(blob);
+            const wrap = document.createElement('div');
+            wrap.className = 'position-relative';
+            wrap.style.width = '140px'; wrap.style.height = '100px';
+
+            const img = document.createElement('img');
+            img.src = url; img.alt = 'shot';
+            img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover';
+            img.className = 'rounded border';
+
+            const del = document.createElement('button');
+            del.type='button'; del.className='btn btn-sm btn-danger position-absolute';
+            del.style.top='4px'; del.style.right='4px';
+            del.innerHTML='<i class="fa-solid fa-xmark"></i>';
+            del.addEventListener('click', () => {
+                const idx = shotBlobs.indexOf(blob);
+                if (idx > -1) shotBlobs.splice(idx,1);
+                wrap.remove(); URL.revokeObjectURL(url);
+            });
+
+            wrap.appendChild(img); wrap.appendChild(del);
+            els.shotList.appendChild(wrap);
+        }
+        function attachShotsToForm(){
+            if (shotBlobs.length === 0) return alert('ยังไม่มีภาพที่ถ่าย');
+
+            const dt = new DataTransfer();
+            if (els.fileInput.files && els.fileInput.files.length){
+                Array.from(els.fileInput.files).forEach(f => dt.items.add(f));
+            }
+            const ts = Date.now();
+            shotBlobs.forEach((blob, i) => {
+                const fname = `camera_${ts}_${i+1}.jpg`;
+                const file  = new File([blob], fname, { type: 'image/jpeg' });
+                dt.items.add(file);
+            });
+            els.fileInput.files = dt.files;
+
+            renderFormCameraPreview();
+
+            shotBlobs.splice(0, shotBlobs.length);
+            els.shotList.innerHTML = '';
+            const cm = bootstrap.Modal.getInstance(els.modal);
+            cm.hide();
+        }
+        function renderFormCameraPreview(){
+            els.formPreview.innerHTML = '';
+            if (!els.fileInput.files || !els.fileInput.files.length) return;
+
+            Array.from(els.fileInput.files).forEach((file) => {
+                if (!file.type.startsWith('image/')) return;
+                const url = URL.createObjectURL(file);
+                const wrap = document.createElement('div');
+                wrap.className = 'd-inline-block position-relative';
+                wrap.style.width='110px'; wrap.style.height='90px';
+
+                const img = document.createElement('img');
+                img.src=url; img.alt=file.name;
+                img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover';
+                img.className='rounded border';
+
+                wrap.appendChild(img);
+                els.formPreview.appendChild(wrap);
+            });
+        }
     </script>
 </body>
 </html>

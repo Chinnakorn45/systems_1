@@ -72,7 +72,7 @@ if ($item_id > 0) {
             $is_disposed = isset($row['is_disposed']) ? (int)$row['is_disposed'] : 0;
 
             // ดึงรูปเพิ่มเติม
-            $sql_imgs = "SELECT image_id, image_path, is_primary FROM item_images WHERE item_id = ? ORDER BY is_primary DESC, sort_order, uploaded_at";
+            $sql_imgs = "SELECT image_id, image_path, is_primary, sort_order, uploaded_at FROM item_images WHERE item_id = ? ORDER BY is_primary DESC, sort_order, uploaded_at";
             if ($stmt_imgs = mysqli_prepare($link, $sql_imgs)) {
                 mysqli_stmt_bind_param($stmt_imgs, "i", $item_id);
                 mysqli_stmt_execute($stmt_imgs);
@@ -361,8 +361,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        body { background: #e8f5e9; font-family: 'Prompt','Kanit','Arial',sans-serif; color:#333; }
-        .container { max-width: 700px; margin-top:40px; padding:20px; background:#fff; border-radius:8px; box-shadow:0 0 15px rgba(0,0,0,0.1); }
+        body { background:#e8f5e9; font-family:'Prompt','Kanit','Arial',sans-serif; color:#333; }
+        .container { max-width:700px; margin-top:40px; padding:20px; background:#fff; border-radius:8px; box-shadow:0 0 15px rgba(0,0,0,0.1); }
         .form-label { font-weight:500; color:#2e7d32; }
         .btn-main { background:linear-gradient(135deg,#4CAF50 0%,#8BC34A 100%); color:#fff; border:none; padding:10px 20px; border-radius:5px; transition:.3s; }
         .btn-main:hover { background:linear-gradient(135deg,#8BC34A 0%,#4CAF50 100%); box-shadow:0 4px 8px rgba(0,0,0,0.2); color:#fff; }
@@ -386,6 +386,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         .scan-dim.left{left:0; top:32%; bottom:32%; width:10%;}
         .scan-dim.right{right:0; top:32%; bottom:32%; width:10%;}
         .scan-instruction{position:absolute; left:50%; top:calc(50% + 60px); transform:translateX(-50%); color:#fff; font-size:1.1rem; text-shadow:0 1px 4px #000; width:100%; text-align:center; z-index:2;}
+        /* กล้องหลายรูป */
+        .shot-thumb{position:relative; width:140px; height:100px;}
+        .shot-thumb img{width:100%; height:100%; object-fit:cover; border:1px solid #ddd; border-radius:6px;}
+        .shot-thumb .btn-del{position:absolute; top:4px; right:4px;}
     </style>
 </head>
 <body>
@@ -500,8 +504,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </div>
 
             <div class="mb-3">
-                <label for="images" class="form-label">รูปภาพ (สามารถเลือกได้หลายไฟล์)</label>
-                <input type="file" class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>" id="images" name="images[]" accept="image/*" multiple>
+                <label for="images" class="form-label">รูปภาพ (เลือกได้หลายไฟล์ หรือถ่ายด้วยกล้อง)</label>
+                <div class="d-flex gap-2 mb-2">
+                    <input type="file" class="form-control <?php echo !empty($image_err) ? 'is-invalid' : ''; ?>" id="images" name="images[]" accept="image/*" multiple>
+                    <button type="button" class="btn btn-outline-primary" onclick="openCameraModal()">
+                        <i class="fa-solid fa-camera me-1"></i> ถ่ายหลายรูป
+                    </button>
+                </div>
+                <div id="cameraPreviewList" class="mb-2 d-flex flex-wrap gap-2"></div>
+
                 <?php if (!empty($existing_images) || $image): ?>
                     <div class="mt-2 d-flex flex-wrap gap-2 align-items-start">
                         <?php foreach ($existing_images as $ei): ?>
@@ -556,26 +567,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       </div>
     </div>
 
-    <!-- Camera capture modal -->
+    <!-- Camera capture (Multi-shot) -->
     <div class="modal fade" id="cameraModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">ถ่ายรูป</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fa-solid fa-camera me-2"></i> ถ่ายรูปหลายภาพ</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body text-center">
-                    <video id="cameraVideo" autoplay playsinline style="width:100%; max-height:60vh; background:#000;"></video>
-                    <canvas id="cameraCanvas" style="display:none;"></canvas>
-                    <div class="mt-2">
-                        <button id="takePhotoBtn" class="btn btn-primary">ถ่าย</button>
-                        <button id="acceptPhotoBtn" class="btn btn-success" style="display:none;">ยอมรับ</button>
-                        <button id="retakePhotoBtn" class="btn btn-secondary" style="display:none;">ถ่ายใหม่</button>
+                <div class="modal-body">
+                    <video id="camStream" autoplay playsinline muted style="width:100%; max-height:60vh; background:#000; border-radius:8px;"></video>
+                    <div class="d-flex gap-2 mt-2">
+                        <button type="button" id="takePhotoBtn" class="btn btn-success"><i class="fa-solid fa-camera-retro me-1"></i> ถ่าย</button>
+                        <button type="button" id="switchCameraBtn" class="btn btn-secondary"><i class="fa-solid fa-sync me-1"></i> สลับกล้อง</button>
+                        <button type="button" id="attachShotsBtn" class="btn btn-primary ms-auto"><i class="fa-solid fa-paperclip me-1"></i> แนบรูปที่ถ่าย</button>
                     </div>
-                    <div id="cameraPreview" class="mt-2"></div>
+                    <hr>
+                    <div id="shotList" class="d-flex flex-wrap gap-2"></div>
+                    <small class="text-muted d-block mt-2">ถ่ายได้สูงสุด 15 ภาพต่อครั้ง • จะลดขนาดอัตโนมัติไม่เกิน 1600px เพื่ออัปโหลดเร็วขึ้น</small>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </div>
         </div>
@@ -584,6 +596,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <!-- แทรก adapter.js เพื่อครอบคลุม getUserMedia เบราว์เซอร์เก่า -->
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
 
     <script>
         // คำนวณราคารวมอัตโนมัติ
@@ -708,82 +722,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             scanTargetInputId = null;
         });
 
-        // --- Camera capture ---
-        let cameraStream = null;
-        const cameraModalEl = document.getElementById('cameraModal');
-        const cameraModal = new bootstrap.Modal(cameraModalEl);
-        document.getElementById('takePhotoBtn').addEventListener('click', async function(){
-            const video = document.getElementById('cameraVideo');
-            const canvas = document.getElementById('cameraCanvas');
-            if (!cameraStream) {
-                try {
-                    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-                    video.srcObject = cameraStream;
-                } catch (err) {
-                    alert('ไม่สามารถเปิดกล้องได้: ' + err.message);
-                    return;
-                }
-            }
-            canvas.width = video.videoWidth || 1280;
-            canvas.height = video.videoHeight || 720;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-            document.getElementById('cameraPreview').innerHTML = '<img src="' + dataUrl + '" style="max-width:100%; height:auto; border:1px solid #ddd; border-radius:6px;">';
-            document.getElementById('acceptPhotoBtn').style.display = '';
-            document.getElementById('retakePhotoBtn').style.display = '';
-        });
-        document.getElementById('retakePhotoBtn').addEventListener('click', function(){
-            document.getElementById('cameraPreview').innerHTML = '';
-            document.getElementById('acceptPhotoBtn').style.display = 'none';
-            document.getElementById('retakePhotoBtn').style.display = 'none';
-        });
-        document.getElementById('acceptPhotoBtn').addEventListener('click', function(){
-            const imgEl = document.querySelector('#cameraPreview img');
-            if (!imgEl) return;
-            const dataUrl = imgEl.src;
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'captured_images[]';
-            input.value = dataUrl;
-            document.querySelector('form').appendChild(input);
-            const container = document.querySelector('.mt-2.d-flex') || document.createElement('div');
-            if (!container.classList.contains('d-flex')) {
-                container.className = 'mt-2 d-flex flex-wrap gap-2 align-items-start';
-                document.getElementById('images').after(container);
-            }
-            const thumb = document.createElement('div');
-            thumb.style = 'position:relative; width:150px;';
-            thumb.innerHTML = '<img src="' + dataUrl + '" style="max-width:150px; height:auto; border:1px solid #ddd; border-radius:6px;">';
-            container.appendChild(thumb);
-            document.getElementById('cameraPreview').innerHTML = '';
-            document.getElementById('acceptPhotoBtn').style.display = 'none';
-            document.getElementById('retakePhotoBtn').style.display = 'none';
-            if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
-            cameraModal.hide();
-        });
-        cameraModalEl.addEventListener('hidden.bs.modal', function(){
-            if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
-            document.getElementById('cameraPreview').innerHTML = '';
-            document.getElementById('acceptPhotoBtn').style.display = 'none';
-            document.getElementById('retakePhotoBtn').style.display = 'none';
-        });
-
         // =========================
-        //  ล็อกช่องยี่ห้อแบบรวม
-        //  - ปิดการใช้งานช่องที่เห็น (id="brand_name")
-        //  - ตัด datalist ออก
-        //  - สร้าง <input type="hidden" name="brand"> เพื่อส่งค่าไป PHP
-        //  - ซิงก์ค่าทุกครั้งที่รุ่นเปลี่ยน (updateBrand)
+        //  ล็อกช่องยี่ห้อแบบรวม (ให้ส่งค่าเป็น hidden name="brand")
         // =========================
         (function lockBrandField() {
           const visible = document.getElementById('brand_name');
           if (!visible) return;
 
-          // เอา datalist ออก
-          visible.removeAttribute('list');
-
-          // ทำให้ช่องที่เห็นใช้งานไม่ได้ทั้งหมด
+          visible.removeAttribute('list'); // ตัด datalist
           visible.disabled = true;
           visible.style.background = '#e9ecef';
           visible.style.cursor = 'not-allowed';
@@ -791,7 +737,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           visible.setAttribute('aria-disabled', 'true');
           visible.tabIndex = -1;
 
-          // hidden input สำหรับส่งค่าไปยัง $_POST['brand']
           let hidden = document.querySelector('input[type="hidden"][name="brand"][data-internal="brand-hidden"]');
           if (!hidden) {
             hidden = document.createElement('input');
@@ -800,7 +745,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             hidden.setAttribute('data-internal','brand-hidden');
             visible.parentNode.insertBefore(hidden, visible.nextSibling);
           }
-
           function syncHidden(){ hidden.value = visible.value || ''; }
           syncHidden();
 
@@ -812,10 +756,222 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
               return res;
             };
           }
-
-          // เผื่อมีสคริปต์อื่นไปแก้ค่าแบบโปรแกรมมิ่ง
           let n = 0, t = setInterval(() => { syncHidden(); if (++n > 20) clearInterval(t); }, 200);
         })();
+
+        // =========================
+        //  กล้องหลายรูป (with fallback)
+        // =========================
+        let camStream = null;
+        let usingFacingMode = 'environment';
+        const maxShots = 15;
+        const maxWidth = 1600;
+        const jpegQuality = 0.85;
+
+        const els = { modal:null, video:null, shotList:null, takeBtn:null, attachBtn:null, switchBtn:null, fileInput:null, formPreview:null };
+        const shotBlobs = [];
+
+        function qs(id){ return document.getElementById(id); }
+
+        function canUseCamera() {
+          const isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+          if (!isSecure) return false;
+          const nav = navigator;
+          const supported = !!(
+            (nav.mediaDevices && typeof nav.mediaDevices.getUserMedia === 'function') ||
+            nav.getUserMedia || nav.webkitGetUserMedia || nav.mozGetUserMedia || nav.msGetUserMedia
+          );
+          return supported;
+        }
+
+        function ensureGetUserMedia() {
+          if (!navigator.mediaDevices) navigator.mediaDevices = {};
+          if (!navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia = function(constraints) {
+              const getUM = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+              if (!getUM) return Promise.reject(new Error('getUserMedia not supported'));
+              return new Promise((resolve, reject) => getUM.call(navigator, constraints, resolve, reject));
+            };
+          }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+          els.modal      = qs('cameraModal');
+          els.video      = qs('camStream');
+          els.shotList   = qs('shotList');
+          els.takeBtn    = qs('takePhotoBtn');
+          els.attachBtn  = qs('attachShotsBtn');
+          els.switchBtn  = qs('switchCameraBtn');
+          els.fileInput  = qs('images');
+          els.formPreview= qs('cameraPreviewList');
+
+          els.takeBtn.addEventListener('click', takePhoto);
+          els.attachBtn.addEventListener('click', attachShotsToForm);
+          els.switchBtn.addEventListener('click', switchCamera);
+          els.modal.addEventListener('hidden.bs.modal', stopCamera);
+
+          // เมื่อผู้ใช้เลือกไฟล์จากคลังภาพ แสดงพรีวิว
+          els.fileInput.addEventListener('change', renderFormCameraPreview);
+        });
+
+        function openCameraModal(){
+          if (!canUseCamera()) {
+            try {
+              els.fileInput.setAttribute('accept', 'image/*');
+              els.fileInput.setAttribute('capture', 'environment');
+              els.fileInput.multiple = true;
+              els.fileInput.click();
+            } catch(e) {}
+            setTimeout(() => alert('อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับการเปิดกล้องโดยตรง หรือไม่ได้รันบน HTTPS/localhost — ใช้งานโหมดเลือก/ถ่ายผ่านกล้องเนทีฟแทน'), 0);
+            return;
+          }
+
+          ensureGetUserMedia();
+          const modal = new bootstrap.Modal(qs('cameraModal'));
+          modal.show();
+          startCameraStream(usingFacingMode);
+        }
+
+        async function startCameraStream(facingMode){
+          try{
+            stopCamera();
+            const constraints = {
+              video: { facingMode: { ideal: facingMode }, width:{ideal:1280}, height:{ideal:720} },
+              audio: false
+            };
+            camStream = await navigator.mediaDevices.getUserMedia(constraints);
+            els.video.srcObject = camStream;
+          }catch(err){
+            stopCamera();
+            const reason = (err && err.message) ? err.message : 'ไม่ทราบสาเหตุ';
+            alert('เปิดกล้องไม่สำเร็จ: ' + reason + '\nจะเปิดโหมดเลือก/ถ่ายภาพผ่านตัวเลือกไฟล์แทน');
+            try {
+              const cm = bootstrap.Modal.getInstance(els.modal);
+              if (cm) cm.hide();
+            } catch(e){}
+            try {
+              els.fileInput.setAttribute('accept', 'image/*');
+              els.fileInput.setAttribute('capture', 'environment');
+              els.fileInput.multiple = true;
+              els.fileInput.click();
+            } catch(e) {}
+          }
+        }
+
+        function stopCamera(){
+          if (camStream){
+            camStream.getTracks().forEach(t => t.stop());
+            camStream = null;
+          }
+        }
+
+        function switchCamera(){
+          usingFacingMode = (usingFacingMode === 'environment') ? 'user' : 'environment';
+          startCameraStream(usingFacingMode);
+        }
+
+        async function takePhoto(){
+          if (!camStream) return;
+          if (shotBlobs.length >= maxShots){
+            return alert('ถ่ายได้ไม่เกิน ' + maxShots + ' ภาพต่อครั้ง');
+          }
+
+          const track = camStream.getVideoTracks()[0];
+          const settings = track.getSettings ? track.getSettings() : {};
+          const vw = els.video.videoWidth || settings.width || 1280;
+          const vh = els.video.videoHeight|| settings.height|| 720;
+
+          const scale = Math.min(1, maxWidth / vw);
+          const cw = Math.round(vw * scale);
+          const ch = Math.round(vh * scale);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = cw; canvas.height = ch;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(els.video, 0, 0, cw, ch);
+
+          canvas.toBlob((blob) => {
+            if (!blob) return;
+            shotBlobs.push(blob);
+            addShotThumb(blob);
+          }, 'image/jpeg', jpegQuality);
+        }
+
+        function addShotThumb(blob){
+          const url = URL.createObjectURL(blob);
+          const wrap = document.createElement('div');
+          wrap.className = 'shot-thumb';
+          const img = document.createElement('img');
+          img.src = url; img.alt = 'shot';
+
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'btn btn-sm btn-danger btn-del';
+          del.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+          del.addEventListener('click', () => {
+            const idx = shotBlobs.indexOf(blob);
+            if (idx > -1) {
+              shotBlobs.splice(idx, 1);
+            }
+            wrap.remove();
+            URL.revokeObjectURL(url);
+          });
+
+          wrap.appendChild(img);
+          wrap.appendChild(del);
+          qs('shotList').appendChild(wrap);
+        }
+
+        function attachShotsToForm(){
+          if (shotBlobs.length === 0){
+            return alert('ยังไม่มีภาพที่ถ่าย');
+          }
+
+          // แนบเข้า input[type=file] ด้วย DataTransfer (จะอัปโหลดไปพร้อมไฟล์ที่เลือกจากเครื่อง)
+          const dt = new DataTransfer();
+          if (els.fileInput.files && els.fileInput.files.length){
+            Array.from(els.fileInput.files).forEach(f => dt.items.add(f));
+          }
+          const ts = Date.now();
+          shotBlobs.forEach((blob, i) => {
+            const fname = `camera_${ts}_${i+1}.jpg`;
+            const file  = new File([blob], fname, { type: 'image/jpeg' });
+            dt.items.add(file);
+          });
+          els.fileInput.files = dt.files;
+
+          renderFormCameraPreview();
+
+          shotBlobs.splice(0, shotBlobs.length);
+          qs('shotList').innerHTML = '';
+          const cm = bootstrap.Modal.getInstance(els.modal);
+          cm?.hide();
+        }
+
+        function renderFormCameraPreview(){
+          els.formPreview.innerHTML = '';
+          if (!els.fileInput.files || !els.fileInput.files.length) return;
+
+          Array.from(els.fileInput.files).forEach((file) => {
+            if (!file.type.startsWith('image/')) return;
+            const url = URL.createObjectURL(file);
+            const wrap = document.createElement('div');
+            wrap.className = 'd-inline-block position-relative';
+            wrap.style.width = '110px';
+            wrap.style.height = '90px';
+
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = file.name;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            img.className = 'rounded border';
+
+            wrap.appendChild(img);
+            els.formPreview.appendChild(wrap);
+          });
+        }
     </script>
 </body>
 </html>
