@@ -6,6 +6,7 @@ require_once 'db.php';
 <html lang="th">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ปฏิทินรายการแจ้งปัญหา</title>
   <!-- FullCalendar -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet" />
@@ -20,12 +21,26 @@ require_once 'db.php';
       padding: 20px;
     }
     .modal { z-index: 1055; }
+    /* Desktop layout adjustments: wider and lower spacing */
+    @media (min-width: 769px){
+      .calendar-page{ margin-top: 64px; margin-right: 16px !important; max-width: calc(100vw - 276px) !important; }
+      #calendar{ min-height: calc(100vh - 220px); }
+    }
+    /* Mobile tweaks for FullCalendar */
+    @media (max-width: 768px){
+      #calendar { padding: 10px; border-radius: 10px; }
+      .fc .fc-toolbar-title{ font-size: 1.05rem; }
+      .fc .fc-button{ padding: .25rem .45rem; font-size: .85rem; }
+      .fc .fc-col-header-cell-cushion{ padding: 6px 4px; }
+      .fc .fc-daygrid-day-number{ padding: 2px 4px; }
+      .fc .fc-daygrid-block-event .fc-event-time, .fc .fc-daygrid-block-event .fc-event-title{ padding: 1px 3px; }
+    }
   </style>
 </head>
 <body>
 <?php include 'sidebar.php'; ?>
 
-<div class="container mt-5">
+<div class="container mt-5 calendar-page">
   <h3 class="mb-4">ปฏิทินรายการแจ้งปัญหา</h3>
   <div id='calendar'></div>
 </div>
@@ -93,15 +108,26 @@ document.addEventListener('DOMContentLoaded', function () {
   const toThaiStatus = (code) => STATUS_MAP[code] || { th: (code || 'ไม่ระบุสถานะ'), color: 'secondary' };
 
   var calendarEl = document.getElementById('calendar');
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  function mobileHeader(){
+    return { left: 'prev,next', center: 'title', right: 'today' };
+  }
+  function desktopHeader(){
+    return { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listMonth' };
+  }
+  function initialView(){
+    return isMobile ? 'listWeek' : 'dayGridMonth';
+  }
   var calendar = new FullCalendar.Calendar(calendarEl, {
-    initialView: 'dayGridMonth',
+    initialView: initialView(),
     locale: 'th',
-    headerToolbar: {
-      left: 'prev,next today',
-      center: 'title',
-      right: 'dayGridMonth,timeGridWeek,timeGridDay,listMonth'
-    },
+    headerToolbar: isMobile ? mobileHeader() : desktopHeader(),
+    height: 'auto',
+    contentHeight: 'auto',
+    expandRows: true,
+    aspectRatio: isMobile ? 0.95 : 1.35,
     events: 'events.php',
+    eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     eventClick: function (info) {
       // ดึงค่า
       const reporter = info.event.extendedProps.reporter || '-';
@@ -125,6 +151,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
   calendar.render();
+
+  // Adapt when rotating / resizing
+  window.addEventListener('resize', () => {
+    const mobile = window.matchMedia('(max-width: 768px)').matches;
+    calendar.setOption('headerToolbar', mobile ? mobileHeader() : desktopHeader());
+    const targetView = mobile ? 'listWeek' : 'dayGridMonth';
+    if (calendar.view.type !== targetView) calendar.changeView(targetView);
+    calendar.setOption('aspectRatio', mobile ? 0.95 : 1.35);
+  });
 });
 </script>
 </body>

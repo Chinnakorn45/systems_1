@@ -166,13 +166,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>แก้ไขโปรไฟล์ - ระบบแจ้งซ่อมครุภัณฑ์</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <!-- Google Fonts for Thai (Prompt & Kanit) -->
     <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600&family=Kanit:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         body, .main-content, .form-label, .form-control, .btn, .nav-link, .alert, .profile-header h2, .profile-header p {
             font-family: 'Prompt', 'Kanit', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
@@ -190,6 +191,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </head>
 <body>
 <?php include 'sidebar.php'; ?>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+    Swal.fire({
+        title: 'โปรดกรอกข้อมูลตามความจริง',
+        html: 'เพื่อความถูกต้องของข้อมูลและการติดต่อ โปรดกรอกข้อมูลให้ครบถ้วนและเป็นความจริงทุกประการ<br>มิฉะนั้นระบบจะไม่สามารถดำเนินการขั้นต่อไปได้',
+        icon: 'info',
+        confirmButtonText: 'รับทราบ',
+        heightAuto: false
+    });
+});
+</script>
 <div class="main-content">
     <div class="container" style="max-width: 700px;">
         <div class="profile-header mb-4">

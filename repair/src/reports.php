@@ -29,6 +29,7 @@ $cats = $conn->query("SELECT * FROM categories");
 <html lang="th">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>สรุปรายงานซ่อม</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="style.css">
@@ -112,7 +113,7 @@ h3 {
             <a href="export_reports_pdf.php?month=<?= $_GET['month']??'' ?>&year=<?= $_GET['year']??'' ?>&category=<?= $_GET['category']??'' ?>" class="btn btn-danger">Export PDF</a>
         </div>
     </form>
-    <div class="report-visuals">
+<div class="report-visuals">
         <div>
             <canvas id="reportChart" width="620" height="370"></canvas>
         </div>
@@ -246,7 +247,8 @@ h3 {
         }
     });
     </script>
-    <table class="table table-bordered">
+    <div class="table-responsive">
+    <table class="table table-bordered table-striped align-middle">
         <thead>
             <tr>
                 <th>หมวดหมู่</th>
@@ -281,6 +283,7 @@ h3 {
         </tr>
         </tbody>
     </table>
+    </div>
 </div>
 </body>
 </html> 

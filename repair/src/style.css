@@ -176,15 +176,14 @@ h3, h5, .card-header { /* หัวข้อหลัก */
   Responsive (รองรับหน้าจอเล็ก)
    ===================== */
 @media (max-width: 768px) {
-  .sidebar {
-    width: 100%;
-    height: auto;
-    position: relative;
-  }
-  .container {
-    margin-left: 0;
+  /* Keep content full width on mobile; sidebar handled by offcanvas */
+  .sidebar { display: none; }
+  .container, .container-fluid {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    max-width: 100% !important;
     margin-top: 16px;
-    padding: 12px 4px;
+    padding: 12px 8px;
     box-sizing: border-box;
   }
 }

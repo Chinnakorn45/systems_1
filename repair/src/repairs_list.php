@@ -80,6 +80,7 @@ if (isset($_POST['delete_id'])) {
 <html lang="th">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>รายการแจ้งซ่อมทั้งหมด</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="style.css">
@@ -104,7 +105,8 @@ if (isset($_POST['delete_id'])) {
         <h3>รายการแจ้งซ่อมทั้งหมด</h3>
         <button type="submit" class="btn btn-secondary"><i class="fas fa-print me-1"></i> พิมพ์ใบรายการแจ้งซ่อม</button>
     </div>
-    <table id="repairs-table" class="table table-bordered">
+    <div class="table-responsive">
+    <table id="repairs-table" class="table table-bordered table-striped align-middle">
         <thead>
             <tr>
                 <th></th>
@@ -158,6 +160,7 @@ if (isset($_POST['delete_id'])) {
         <?php endif; ?>
         </tbody>
     </table>
+    </div>
     </form>
 </div>
 <script>

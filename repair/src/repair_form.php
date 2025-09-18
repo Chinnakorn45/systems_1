@@ -5,6 +5,57 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['staff', 'admi
     header('Location: login.php'); exit;
 }
 
+// ===== บังคับให้โปรไฟล์ผู้ใช้กรอกข้อมูลให้ครบก่อนแจ้งซ่อม =====
+try {
+    $uid_chk = intval($_SESSION['user_id']);
+    $res_u = $conn->query("SELECT username, full_name, email, department, position FROM users WHERE user_id = $uid_chk LIMIT 1");
+    $u = $res_u ? $res_u->fetch_assoc() : null;
+    $required_ok = true;
+    if (!$u) {
+        $required_ok = false;
+    } else {
+        $usernameOk   = !empty(trim($u['username'] ?? ''));
+        $fullNameOk   = !empty(trim($u['full_name'] ?? ''));
+        $emailVal     = trim($u['email'] ?? '');
+        $emailOk      = $emailVal !== '' && filter_var($emailVal, FILTER_VALIDATE_EMAIL);
+        $deptOk       = !empty(trim($u['department'] ?? ''));
+        $positionOk   = !empty(trim($u['position'] ?? ''));
+        $required_ok  = $usernameOk && $fullNameOk && $emailOk && $deptOk && $positionOk;
+    }
+    if (!$required_ok) {
+        echo '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>'
+            . '</head><body>'
+            . '<script>'
+            . 'Swal.fire({'
+            . '  title: "โปรไฟล์ยังไม่ครบ",'
+            . '  html: "กรุณากรอกข้อมูลโปรไฟล์ให้ครบก่อนแจ้งซ่อม<br>(ชื่อผู้ใช้, ชื่อ-นามสกุล, อีเมล, แผนก, ตำแหน่ง)",'
+            . '  icon: "warning",'
+            . '  confirmButtonText: "ไปกรอกโปรไฟล์",'
+            . '  allowOutsideClick: false, allowEscapeKey: false'
+            . '}).then(function(){ window.location = "profile.php"; });'
+            . '</script>'
+            . '</body></html>';
+        exit;
+    }
+} catch (Throwable $e) {
+    // หากตรวจสอบโปรไฟล์ผิดพลาด ให้ป้องกันการแจ้งซ่อมและให้ไปหน้าโปรไฟล์ (แสดงป๊อปอัพสวยงาม)
+    echo '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+        . '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>'
+        . '</head><body>'
+        . '<script>'
+        . 'Swal.fire({'
+        . '  title: "เกิดข้อผิดพลาด",'
+        . '  html: "ไม่สามารถตรวจสอบข้อมูลผู้ใช้ได้ กรุณาตรวจสอบโปรไฟล์",'
+        . '  icon: "error",'
+        . '  confirmButtonText: "ไปที่โปรไฟล์",'
+        . '  allowOutsideClick: false, allowEscapeKey: false'
+        . '}).then(function(){ window.location = "profile.php"; });'
+        . '</script>'
+        . '</body></html>';
+    exit;
+}
+
 // === แผนที่สถานะ (อังกฤษ -> ไทย) สำหรับแสดงผลสวย ๆ ===
 $status_map = [
     'received'             => 'รับเรื่อง',
@@ -133,6 +184,7 @@ $items = $conn->query("
 <html lang="th">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>แจ้งซ่อมครุภัณฑ์</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="style.css">
