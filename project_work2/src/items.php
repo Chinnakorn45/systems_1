@@ -2,12 +2,17 @@
 require_once 'config.php';
 session_start();
 
-// ตรวจสอบการล็อกอิน
+/* ===== ทำให้ mysqli โยน exception + ตั้ง charset ===== */
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+if (function_exists('mysqli_set_charset')) {
+    @mysqli_set_charset($link, 'utf8mb4');
+}
+
+/* ===== ตรวจสอบการล็อกอิน/สิทธิ์ ===== */
 if (!isset($_SESSION["user_id"])) {
     header("location: login.php");
     exit;
 }
-// จำกัดสิทธิ์เฉพาะ admin
 if ($_SESSION["role"] !== "admin") {
     if ($_SESSION["role"] === 'staff') {
         header('Location: borrowings.php');
@@ -18,66 +23,149 @@ if ($_SESSION["role"] !== "admin") {
 }
 
 /* =========================
-   ลบครุภัณฑ์ (ตามเงื่อนไขเดิม)
+   โน้ตส่วนตัวผู้ใช้ (ไม่ผูกครุภัณฑ์)
+   - สร้างตารางถ้ายังไม่มี
+   - โหลดโน้ตปัจจุบันของผู้ใช้
+   - Endpoint AJAX: action=save_quick_note (POST)
+   ========================= */
+$my_uid = (int)$_SESSION['user_id'];
+try {
+    mysqli_query($link, "
+        CREATE TABLE IF NOT EXISTS user_notes (
+            user_id INT NOT NULL PRIMARY KEY,
+            note_text MEDIUMTEXT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (mysqli_sql_exception $e) {
+    // ถ้าสร้างไม่ได้ก็จะไม่มีโน้ต (ไม่ทำให้หน้าใช้งานหลักพัง)
+}
+$my_note = '';
+try {
+    $stmt = $link->prepare("SELECT note_text FROM user_notes WHERE user_id = ?");
+    $stmt->bind_param('i', $my_uid);
+    $stmt->execute();
+    $stmt->bind_result($my_note);
+    $stmt->fetch();
+    $stmt->close();
+} catch (mysqli_sql_exception $e) {
+    $my_note = '';
+}
+
+/* ===== AJAX: บันทึกโน้ตส่วนตัว ===== */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_quick_note') {
+    header('Content-Type: application/json; charset=utf-8');
+    $note = isset($_POST['note']) ? (string)$_POST['note'] : '';
+    if (mb_strlen($note, 'UTF-8') > 5000) {
+        $note = mb_substr($note, 0, 5000, 'UTF-8');
+    }
+    try {
+        $stmt = $link->prepare("
+            INSERT INTO user_notes (user_id, note_text)
+            VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE note_text = VALUES(note_text), updated_at = CURRENT_TIMESTAMP
+        ");
+        $stmt->bind_param('is', $my_uid, $note);
+        $stmt->execute();
+        $stmt->close();
+        echo json_encode(['ok' => true, 'note' => $note]);
+    } catch (mysqli_sql_exception $e) {
+        echo json_encode(['ok' => false, 'message' => 'บันทึกไม่สำเร็จ: '.$e->getMessage()]);
+    }
+    exit;
+}
+
+/* =========================
+   ลบครุภัณฑ์ (ตรวจ FK ครบ + ดักจับ FK error)
    ========================= */
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $item_id = intval($_GET['id']);
-    
-    // ตรวจสอบว่าครุภัณฑ์มีการยืมอยู่หรือไม่
-    $check_borrowings = "SELECT COUNT(*) as count FROM borrowings WHERE item_id = ? AND status IN ('borrowed', 'pending', 'overdue')";
-    $stmt_check = mysqli_prepare($link, $check_borrowings);
-    mysqli_stmt_bind_param($stmt_check, "i", $item_id);
-    mysqli_stmt_execute($stmt_check);
-    $result_check = mysqli_stmt_get_result($stmt_check);
-    $borrowings_count = mysqli_fetch_assoc($result_check)['count'];
-    mysqli_stmt_close($stmt_check);
-    
-    // ตรวจสอบการเคลื่อนไหวล่าสุด
-    $check_movements = "SELECT COUNT(*) as count FROM equipment_movements WHERE item_id = ? AND movement_type IN ('maintenance', 'disposal')";
-    $stmt_movements = mysqli_prepare($link, $check_movements);
-    mysqli_stmt_bind_param($stmt_movements, "i", $item_id);
-    mysqli_stmt_execute($stmt_movements);
-    $result_movements = mysqli_stmt_get_result($stmt_movements);
-    $movements_count = mysqli_fetch_assoc($result_movements)['count'];
-    mysqli_stmt_close($stmt_movements);
-    
-    // ตรวจสอบงานซ่อม
-    $check_repairs = "SELECT COUNT(*) as count FROM repairs WHERE item_id = ? AND status NOT IN ('completed', 'cancelled')";
-    $stmt_repairs = mysqli_prepare($link, $check_repairs);
-    mysqli_stmt_bind_param($stmt_repairs, "i", $item_id);
-    mysqli_stmt_execute($stmt_repairs);
-    $result_repairs = mysqli_stmt_get_result($stmt_repairs);
-    $repairs_count = mysqli_fetch_assoc($result_repairs)['count'];
-    mysqli_stmt_close($stmt_repairs);
-    
-    if ($borrowings_count > 0) {
-        $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการยืมอยู่";
-        header("location: items.php");
-        exit;
-    }
-    if ($movements_count > 0) {
-        $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการส่งซ่อมหรือเคลื่อนไหวอยู่";
-        header("location: items.php");
-        exit;
-    }
-    if ($repairs_count > 0) {
-        $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการส่งซ่อมอยู่";
-        header("location: items.php");
-        exit;
-    }
-    
-    $sql_del = "DELETE FROM items WHERE item_id = ?";
-    if ($stmt = mysqli_prepare($link, $sql_del)) {
-        mysqli_stmt_bind_param($stmt, "i", $item_id);
-        if (mysqli_stmt_execute($stmt)) {
-            $_SESSION['success_message'] = "ลบครุภัณฑ์เรียบร้อยแล้ว";
-        } else {
-            $_SESSION['error_message'] = "เกิดข้อผิดพลาดในการลบครุภัณฑ์";
-        }
+
+    // helper: คืนจำนวนแถวจาก query COUNT(*)
+    $get_count = function(mysqli $link, string $sql, int $id): int {
+        $stmt = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
+        $res = mysqli_stmt_get_result($stmt);
+        $row = $res ? mysqli_fetch_assoc($res) : ['count' => 0];
+        $cnt = isset($row['count']) ? (int)$row['count'] : 0;
         mysqli_stmt_close($stmt);
-        header("location: items.php");
-        exit;
+        return $cnt;
+    };
+
+    try {
+        // 1) อ้างอิงที่ยัง active (กันลบแน่นอน)
+        $borrowings_active = $get_count($link,
+            "SELECT COUNT(*) AS count FROM borrowings 
+             WHERE item_id = ? AND status IN ('borrowed','pending','overdue')",
+            $item_id
+        );
+
+        $repairs_active = $get_count($link,
+            "SELECT COUNT(*) AS count FROM repairs 
+             WHERE item_id = ? AND status NOT IN ('completed','cancelled')",
+            $item_id
+        );
+
+        $movements_block = $get_count($link,
+            "SELECT COUNT(*) AS count FROM equipment_movements 
+             WHERE item_id = ? AND movement_type IN ('maintenance','disposal')",
+            $item_id
+        );
+
+        if ($borrowings_active > 0) {
+            $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการยืมอยู่";
+            header("location: items.php"); exit;
+        }
+        if ($repairs_active > 0) {
+            $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการส่งซ่อมอยู่";
+            header("location: items.php"); exit;
+        }
+        if ($movements_block > 0) {
+            $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการเคลื่อนไหว/บำรุงรักษาอยู่";
+            header("location: items.php"); exit;
+        }
+
+        // 2) อ้างอิงแบบ “ประวัติ” (ถึงจะปิดงานแล้ว แต่ยังมี row ลูก -> FK จะบล็อคการลบ)
+        $borrowings_any = $get_count($link,
+            "SELECT COUNT(*) AS count FROM borrowings WHERE item_id = ?",
+            $item_id
+        );
+        $repairs_any = $get_count($link,
+            "SELECT COUNT(*) AS count FROM repairs WHERE item_id = ?",
+            $item_id
+        );
+        $movements_any = $get_count($link,
+            "SELECT COUNT(*) AS count FROM equipment_movements WHERE item_id = ?",
+            $item_id
+        );
+
+        if ($borrowings_any > 0 || $repairs_any > 0 || $movements_any > 0) {
+            $_SESSION['error_message'] =
+                "ไม่สามารถลบได้: มีประวัติการยืม/ซ่อม/เคลื่อนไหวที่เชื่อมกับครุภัณฑ์นี้อยู่ (ถึงแม้จะปิดงานแล้ว)";
+            header("location: items.php"); exit;
+        }
+
+        // 3) ผ่านเงื่อนไขทั้งหมด -> ลบ
+        $sql_del = "DELETE FROM items WHERE item_id = ?";
+        $stmt = mysqli_prepare($link, $sql_del);
+        mysqli_stmt_bind_param($stmt, "i", $item_id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+
+        $_SESSION['success_message'] = "ลบครุภัณฑ์เรียบร้อยแล้ว";
+    } catch (mysqli_sql_exception $e) {
+        // 1451 = Cannot delete or update a parent row: a foreign key constraint fails
+        if ((int)$e->getCode() === 1451) {
+            $_SESSION['error_message'] =
+                "ไม่สามารถลบได้ เนื่องจากมีข้อมูลอ้างอิงอยู่ (Foreign Key) — "
+                ."พิจารณาใช้การ 'จำหน่าย/เลิกใช้' แทนการลบถาวร หรือปรับ FK เป็น ON DELETE CASCADE หากต้องการให้ลบประวัติตาม";
+        } else {
+            $_SESSION['error_message'] = "เกิดข้อผิดพลาดในการลบ: ".$e->getMessage();
+        }
     }
+
+    header("location: items.php"); exit;
 }
 
 /* =========================
@@ -239,6 +327,24 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
       footer { position: relative; z-index: 100; }
     }
     .filters .form-control, .filters .form-select { height: 38px; }
+
+    /* ปุ่มโน้ตส่วนตัว มุมล่างขวา */
+    .btn-quick-note{
+      position: fixed;
+      right: 18px;
+      bottom: 20px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 16px rgba(0,0,0,.18);
+      z-index: 1080;
+    }
+    .btn-quick-note i{
+      font-size: 20px;
+    }
   </style>
 </head>
 <body>
@@ -265,7 +371,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
           <h2 class="mb-0"><i class="fas fa-box me-2"></i>จัดการครุภัณฑ์</h2>
           <div class="d-flex gap-2">
             <a href="categories.php" class="btn btn-secondary"><i class="fas fa-list"></i> หมวดหมู่</a>
-            <a href="brands.php" class="btn btn-secondary"><i class="fas a-trademark"></i> ยี่ห้อ/รุ่น</a>
+            <a href="brands.php" class="btn btn-secondary"><i class="fas fa-trademark"></i> ยี่ห้อ/รุ่น</a>
             <a href="item_form.php" class="btn btn-add"><i class="fas fa-plus"></i> เพิ่มครุภัณฑ์</a>
             <!-- ปุ่มพิมพ์รายการครุภัณฑ์ (พกตัวกรองไปด้วย) -->
             <a href="<?= htmlspecialchars($print_url, ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="btn btn-success">
@@ -426,6 +532,11 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
   </div>
 </div>
 
+<!-- ปุ่มโน้ตส่วนตัว (ไม่เกี่ยวกับครุภัณฑ์) -->
+<button type="button" id="quickNoteBtn" class="btn btn-primary btn-quick-note" title="โน้ตส่วนตัว">
+  <i class="far fa-sticky-note"></i>
+</button>
+
 <!-- Gallery modal -->
 <div class="modal fade" id="imageGalleryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
@@ -531,6 +642,48 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
     if (counter) counter.textContent = (galleryIndex + 1) + ' / ' + galleryImages.length;
   }
 
+  // ----- โน้ตส่วนตัว (ไม่ผูกครุภัณฑ์) -----
+  let quickNote = <?php echo json_encode($my_note, JSON_UNESCAPED_UNICODE); ?> || '';
+
+  function openQuickNote(){
+    Swal.fire({
+      title: 'โน้ตส่วนตัว',
+      input: 'textarea',
+      inputValue: quickNote,
+      inputAttributes: { 'aria-label': 'พิมพ์โน้ตของคุณที่นี่' },
+      inputAutoTrim: false,
+      showCancelButton: true,
+      confirmButtonText: 'บันทึก',
+      cancelButtonText: 'ยกเลิก',
+      width: 600,
+      preConfirm: (val) => {
+        return fetch('items.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          body: new URLSearchParams({ action: 'save_quick_note', note: val ?? '' })
+        })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.ok) throw new Error(data.message || 'บันทึกไม่สำเร็จ');
+          return data;
+        })
+        .catch(err => {
+          Swal.showValidationMessage(err.message);
+        });
+      }
+    }).then(res => {
+      if (res.isConfirmed && res.value && res.value.ok) {
+        quickNote = res.value.note || '';
+        Swal.fire({
+          icon: 'success',
+          title: 'บันทึกแล้ว',
+          timer: 1200,
+          showConfirmButton: false
+        });
+      }
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     // ค้นหาแบบทันทีในตาราง
     const searchEl = document.getElementById('itemSearch');
@@ -581,6 +734,16 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
         galleryImages = [];
       });
     }
+
+    // ไอคอนโน้ตส่วนตัว + ช็อตคัท Alt+N
+    const btn = document.getElementById('quickNoteBtn');
+    if (btn) btn.addEventListener('click', openQuickNote);
+    document.addEventListener('keydown', (e) => {
+      if ((e.altKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        openQuickNote();
+      }
+    });
   });
 })();
 </script>
