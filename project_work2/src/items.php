@@ -88,6 +88,14 @@ $status        = isset($_GET['status']) ? trim($_GET['status']) : ''; // availab
 $category_id   = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
 $location_like = isset($_GET['location']) ? trim($_GET['location']) : '';
 
+/* ====== สร้างลิงก์ไปหน้า print พร้อมพารามิเตอร์ตัวกรอง ====== */
+$qs = [];
+if ($search !== '')        $qs['search']      = $search;
+if ($status !== '')        $qs['status']      = $status;
+if ($category_id > 0)      $qs['category_id'] = $category_id;
+if ($location_like !== '') $qs['location']    = $location_like;
+$print_url = 'print_items.php' . ($qs ? ('?' . http_build_query($qs)) : '');
+
 /* =========================
    สร้างเงื่อนไข WHERE จากตัวกรอง
    ========================= */
@@ -187,7 +195,7 @@ function is_sel($a, $b) { return $a===$b ? 'selected' : ''; }
 
 /* ===== Helpers สำหรับจัดพาธรูป ===== */
 
-// คืน URL สัมพัทธ์ตามตำแหน่งสคริปต์ปัจจุบัน (รองรับกรณีรันในซับโฟลเดอร์)
+// คืน URL สัมพัทธ์ตามตำแหน่งสคริปต์ปัจจุบัน
 if (!function_exists('asset_url')) {
   function asset_url(string $rel): string {
     $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
@@ -200,15 +208,18 @@ if (!function_exists('normalize_image_url')) {
   function normalize_image_url(string $p): string {
     $p = trim($p);
     if ($p === '') return '';
-    // เป็น URL เต็มอยู่แล้ว
     if (preg_match('#^https?://#i', $p)) return $p;
-    // ถ้าเป็นชื่อไฟล์เฉย ๆ หรือไม่มี uploads/ ก็นำหน้าให้ครบ
     if ($p[0] !== '/' && strpos($p, 'uploads/') !== 0) {
       $p = 'uploads/' . $p;
     }
     return asset_url($p);
   }
 }
+
+/* ===== Flash message สำหรับ Swal (อ่านจาก session แล้วเคลียร์) ===== */
+$flash_success = isset($_SESSION['success_message']) ? $_SESSION['success_message'] : '';
+$flash_error   = isset($_SESSION['error_message'])   ? $_SESSION['error_message']   : '';
+unset($_SESSION['success_message'], $_SESSION['error_message']);
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -249,35 +260,21 @@ if (!function_exists('normalize_image_url')) {
     <div class="col-md-9 col-lg-10 px-0">
       <div class="main-content mt-4 mt-md-5">
 
-        <!-- Alerts -->
-        <?php if (isset($_SESSION['success_message'])): ?>
-          <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="fas fa-check-circle me-2"></i>
-            <?= $_SESSION['success_message']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>
-          <?php unset($_SESSION['success_message']); ?>
-        <?php endif; ?>
-        <?php if (isset($_SESSION['error_message'])): ?>
-          <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="fas fa-exclamation-triangle me-2"></i>
-            <?= $_SESSION['error_message']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>
-          <?php unset($_SESSION['error_message']); ?>
-        <?php endif; ?>
-
         <!-- Header -->
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
           <h2 class="mb-0"><i class="fas fa-box me-2"></i>จัดการครุภัณฑ์</h2>
           <div class="d-flex gap-2">
             <a href="categories.php" class="btn btn-secondary"><i class="fas fa-list"></i> หมวดหมู่</a>
-            <a href="brands.php" class="btn btn-secondary"><i class="fas fa-trademark"></i> ยี่ห้อ/รุ่น</a>
+            <a href="brands.php" class="btn btn-secondary"><i class="fas a-trademark"></i> ยี่ห้อ/รุ่น</a>
             <a href="item_form.php" class="btn btn-add"><i class="fas fa-plus"></i> เพิ่มครุภัณฑ์</a>
+            <!-- ปุ่มพิมพ์รายการครุภัณฑ์ (พกตัวกรองไปด้วย) -->
+            <a href="<?= htmlspecialchars($print_url, ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="btn btn-success">
+              <i class="fas fa-print"></i> พิมพ์รายการครุภัณฑ์
+            </a>
           </div>
         </div>
 
-        <!-- ตัวกรอง (คงไว้เฉพาะที่ต้องการ) -->
+        <!-- ตัวกรอง -->
         <form class="card shadow-sm mb-3 filters" method="get">
           <div class="card-body">
             <div class="row g-2 align-items-end">
@@ -336,13 +333,9 @@ if (!function_exists('normalize_image_url')) {
                     <th>ยี่ห้อ</th>
                     <th>รุ่นครุภัณฑ์</th>
                     <th>หมวดหมู่</th>
-                    <th>จำนวน</th>
-                    <th>ราคาต่อหน่วย</th>
-                    <th>ราคารวม</th>
                     <th>รูป</th>
                     <th>หมายเหตุ</th>
                     <th>ตำแหน่ง</th>
-                    <th>วันที่จัดซื้อ</th>
                     <th>สถานะ</th>
                     <th>จัดการ</th>
                   </tr>
@@ -359,12 +352,9 @@ if (!function_exists('normalize_image_url')) {
                     <td><?= htmlspecialchars($row['brand'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($row['model_name'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($row['category_name'] ?? '-') ?></td>
-                    <td><?= (int)$row['total_quantity'] ?></td>
-                    <td><?= isset($row['price_per_unit']) ? number_format($row['price_per_unit'], 2) : '-' ?></td>
-                    <td><?= isset($row['total_price']) ? number_format($row['total_price'], 2) : '-' ?></td>
                     <td>
                       <?php
-                        // แสดง thumbnail รูปแรก + เปิดแกลเลอรี (normalize path ให้ถูกเสมอ)
+                        // แสดง thumbnail รูปแรก + เปิดแกลเลอรี
                         $img_list = [];
                         if (!empty($row['images_concat'])) {
                           $parts = explode('||', $row['images_concat']);
@@ -376,7 +366,6 @@ if (!function_exists('normalize_image_url')) {
                         if (empty($img_list) && !empty($row['image'])) $img_list[] = $row['image'];
 
                         if (!empty($img_list)) {
-                          // แปลงพาธทั้งหมดให้เป็น URL ใช้งานได้
                           $img_urls = array_map('normalize_image_url', $img_list);
                           $first = $img_urls[0];
                           $json = htmlspecialchars(json_encode(array_values($img_urls)), ENT_QUOTES, 'UTF-8');
@@ -389,7 +378,6 @@ if (!function_exists('normalize_image_url')) {
                     </td>
                     <td><?= htmlspecialchars($row['note'] ?? '') ?></td>
                     <td><?= htmlspecialchars($row['location'] ?? '-') ?></td>
-                    <td><?= !empty($row['purchase_date']) ? thaidate('j M Y', $row['purchase_date']) : '-' ?></td>
                     <td>
                       <?php 
                         switch($row['current_status']) {
@@ -404,7 +392,9 @@ if (!function_exists('normalize_image_url')) {
                     <td class="d-flex gap-1 align-items-center">
                       <a href="item_form2.php?id=<?= (int)$row['item_id'] ?>" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
                       <?php if ($row['current_status'] === 'available'): ?>
-                        <a href="items.php?action=delete&id=<?= (int)$row['item_id'] ?>" class="btn btn-sm btn-danger" onclick="return confirm('ยืนยันการลบครุภัณฑ์นี้?');"><i class="fas fa-trash"></i></a>
+                        <button class="btn btn-sm btn-danger" onclick="confirmDelete(<?= (int)$row['item_id'] ?>)" title="ลบครุภัณฑ์">
+                          <i class="fas fa-trash"></i>
+                        </button>
                       <?php else: ?>
                         <button class="btn btn-sm btn-secondary" disabled title="ไม่สามารถลบครุภัณฑ์ที่ไม่พร้อมใช้งานได้">
                           <i class="fas fa-trash"></i>
@@ -436,7 +426,7 @@ if (!function_exists('normalize_image_url')) {
   </div>
 </div>
 
-<!-- Gallery modal (อยู่ก่อนสคริปต์) -->
+<!-- Gallery modal -->
 <div class="modal fade" id="imageGalleryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
     <div class="modal-content bg-transparent border-0">
@@ -456,32 +446,73 @@ if (!function_exists('normalize_image_url')) {
   </div>
 </div>
 
-<!-- JS (ย้ายมาไว้หลังโมดัล + ห่อ DOMContentLoaded) -->
+<!-- JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- SweetAlert2 -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 (function () {
-  // ----- state ของแกลเลอรี -----
+  const BRAND_GREEN = '#41B143';
+
+  // ----- Flash จาก PHP (หลัง redirect การลบ/บันทึก) -----
+  const flashSuccess = <?php echo json_encode($flash_success, JSON_UNESCAPED_UNICODE); ?>;
+  const flashError   = <?php echo json_encode($flash_error,   JSON_UNESCAPED_UNICODE); ?>;
+
+  if (flashError) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'ไม่สามารถดำเนินการได้',
+      text: flashError,
+      confirmButtonText: 'ตกลง',
+      confirmButtonColor: BRAND_GREEN
+    });
+  }
+  if (flashSuccess) {
+    Swal.fire({
+      icon: 'success',
+      title: 'สำเร็จ',
+      text: flashSuccess,
+      timer: 1600,
+      showConfirmButton: false
+    });
+  }
+
+  // ----- ยืนยันการลบ (แทน confirm() เดิม) -----
+  window.confirmDelete = function(id){
+    Swal.fire({
+      icon: 'question',
+      title: 'ยืนยันการลบ?',
+      text: 'เมื่อลบแล้วจะไม่สามารถกู้คืนได้',
+      showCancelButton: true,
+      confirmButtonText: 'ลบ',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#dc3545',
+      cancelButtonColor: '#6c757d',
+      reverseButtons: true
+    }).then((result) => {
+      if (result.isConfirmed) {
+        window.location.href = 'items.php?action=delete&id=' + encodeURIComponent(id);
+      }
+    });
+  };
+
+  // ----- แกลเลอรีรูปภาพ -----
   let galleryImages = [];
   let galleryIndex = 0;
 
-  // ทำให้เรียกได้จาก onclick บน <a>
   window.openGallery = function (e, anchor) {
     if (e.ctrlKey || e.metaKey || e.button === 1) return; // อนุญาตเปิดแท็บใหม่
     e.preventDefault();
-
     try {
       const json = anchor.getAttribute('data-images');
       galleryImages = JSON.parse(json || '[]');
-    } catch (_) {
-      galleryImages = [];
-    }
+    } catch (_) { galleryImages = []; }
     if (!galleryImages.length) return;
 
     galleryIndex = 0;
     showGalleryImage(galleryIndex);
 
     const modalEl = document.getElementById('imageGalleryModal');
-    if (!modalEl) return;
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
   };
@@ -501,7 +532,7 @@ if (!function_exists('normalize_image_url')) {
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // ----- ค้นหาแบบทันทีในตาราง -----
+    // ค้นหาแบบทันทีในตาราง
     const searchEl = document.getElementById('itemSearch');
     if (searchEl) {
       searchEl.addEventListener('input', function () {
@@ -536,13 +567,13 @@ if (!function_exists('normalize_image_url')) {
       });
     }
 
-    // ----- ปุ่ม/เหตุการณ์ของโมดัลแกลเลอรี -----
+    // ปุ่มเลื่อนรูปในแกลเลอรี
     const prevBtn = document.getElementById('galleryPrev');
     const nextBtn = document.getElementById('galleryNext');
-    const modalEl = document.getElementById('imageGalleryModal');
-
     if (prevBtn) prevBtn.addEventListener('click', () => showGalleryImage(galleryIndex - 1));
     if (nextBtn) nextBtn.addEventListener('click', () => showGalleryImage(galleryIndex + 1));
+
+    const modalEl = document.getElementById('imageGalleryModal');
     if (modalEl) {
       modalEl.addEventListener('hidden.bs.modal', function () {
         const img = document.getElementById('galleryImg');

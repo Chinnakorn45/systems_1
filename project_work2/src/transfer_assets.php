@@ -1,5 +1,5 @@
 <?php
-// transfer_assets.php — full_name ทุกจุด + แก้ collation + ตารางเลื่อนแบบ 80vh + ค้นหา (Select2)
+// transfer_assets.php — full_name ทุกจุด + แก้ collation + ตารางเลื่อน 80vh + ค้นหา (Select2) + SweetAlert2
 require_once 'config.php';
 if (!isset($_SESSION)) session_start();
 
@@ -26,12 +26,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ตรวจสอบบทบาทของผู้รับสิทธิ
     $new_role = null;
-    $stmtRole = mysqli_prepare($link, "SELECT role FROM users WHERE user_id = ?");
-    mysqli_stmt_bind_param($stmtRole, "i", $new_owner_id);
-    mysqli_stmt_execute($stmtRole);
-    mysqli_stmt_bind_result($stmtRole, $new_role);
-    mysqli_stmt_fetch($stmtRole);
-    mysqli_stmt_close($stmtRole);
+    if ($stmtRole = mysqli_prepare($link, "SELECT role FROM users WHERE user_id = ?")) {
+        mysqli_stmt_bind_param($stmtRole, "i", $new_owner_id);
+        mysqli_stmt_execute($stmtRole);
+        mysqli_stmt_bind_result($stmtRole, $new_role);
+        mysqli_stmt_fetch($stmtRole);
+        mysqli_stmt_close($stmtRole);
+    }
 
     if (!in_array($new_role, ['staff','procurement','admin'], true)) {
         $_SESSION['error_message'] = 'อนุญาตให้โอนสิทธิให้เฉพาะผู้ใช้ที่มีบทบาทที่กำหนด';
@@ -42,12 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         // ดึงเจ้าของเดิมและล็อกแถว
         $old_owner_id = null;
-        $stmtOld = mysqli_prepare($link, "SELECT owner_user_id FROM items WHERE item_id = ? FOR UPDATE");
-        mysqli_stmt_bind_param($stmtOld, "i", $item_id);
-        mysqli_stmt_execute($stmtOld);
-        mysqli_stmt_bind_result($stmtOld, $old_owner_id);
-        mysqli_stmt_fetch($stmtOld);
-        mysqli_stmt_close($stmtOld);
+        if ($stmtOld = mysqli_prepare($link, "SELECT owner_user_id FROM items WHERE item_id = ? FOR UPDATE")) {
+            mysqli_stmt_bind_param($stmtOld, "i", $item_id);
+            mysqli_stmt_execute($stmtOld);
+            mysqli_stmt_bind_result($stmtOld, $old_owner_id);
+            mysqli_stmt_fetch($stmtOld);
+            mysqli_stmt_close($stmtOld);
+        }
 
         $old_owner_int = is_null($old_owner_id) ? null : (int)$old_owner_id;
         if ($old_owner_int === $new_owner_id) {
@@ -55,21 +57,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // อัปเดตเจ้าของ
-        $stmtUpd = mysqli_prepare($link, "UPDATE items SET owner_user_id = ? WHERE item_id = ?");
-        mysqli_stmt_bind_param($stmtUpd, "ii", $new_owner_id, $item_id);
-        mysqli_stmt_execute($stmtUpd);
-        mysqli_stmt_close($stmtUpd);
+        if ($stmtUpd = mysqli_prepare($link, "UPDATE items SET owner_user_id = ? WHERE item_id = ?")) {
+            mysqli_stmt_bind_param($stmtUpd, "ii", $new_owner_id, $item_id);
+            mysqli_stmt_execute($stmtUpd);
+            mysqli_stmt_close($stmtUpd);
+        }
 
         // บันทึกประวัติ
-        $stmtHis = mysqli_prepare($link, "INSERT INTO equipment_history
+        if ($stmtHis = mysqli_prepare($link, "INSERT INTO equipment_history
             (item_id, action_type, old_value, new_value, changed_by, remarks)
-            VALUES (?, 'transfer_ownership', ?, ?, ?, ?)");
-        $old_str    = is_null($old_owner_int) ? null : (string)$old_owner_int;
-        $new_str    = (string)$new_owner_id;
-        $changed_by = (int)$_SESSION['user_id'];
-        mysqli_stmt_bind_param($stmtHis, "issis", $item_id, $old_str, $new_str, $changed_by, $remarks);
-        mysqli_stmt_execute($stmtHis);
-        mysqli_stmt_close($stmtHis);
+            VALUES (?, 'transfer_ownership', ?, ?, ?, ?)")) {
+            $old_str    = is_null($old_owner_int) ? null : (string)$old_owner_int;
+            $new_str    = (string)$new_owner_id;
+            $changed_by = (int)$_SESSION['user_id'];
+            mysqli_stmt_bind_param($stmtHis, "issis", $item_id, $old_str, $new_str, $changed_by, $remarks);
+            mysqli_stmt_execute($stmtHis);
+            mysqli_stmt_close($stmtHis);
+        }
 
         mysqli_commit($link);
         $_SESSION['success_message'] = 'โอนสิทธิครุภัณฑ์เรียบร้อยแล้ว';
@@ -100,7 +104,7 @@ $sqlUsers = "
 ";
 $rsUsers = mysqli_query($link, $sqlUsers);
 
-/* History */
+/* History (แสดงชื่อเดิม/ใหม่ด้วย full_name ทั้งกรณีเก็บเป็น id หรือ string) */
 $sqlHis = "
     SELECT
       h.history_id, h.item_id, h.action_type, h.old_value, h.new_value,
@@ -125,6 +129,11 @@ $sqlHis = "
     LIMIT 100
 ";
 $rsHis = mysqli_query($link, $sqlHis);
+
+/* Flash (สำหรับ SweetAlert2) */
+$flash_success = $_SESSION['success_message'] ?? null;
+$flash_error   = $_SESSION['error_message']   ?? null;
+unset($_SESSION['success_message'], $_SESSION['error_message']);
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -169,26 +178,10 @@ $rsHis = mysqli_query($link, $sqlHis);
     <div class="col-md-9 col-lg-10 px-0">
       <div class="main-content mt-4 mt-md-5">
 
-        <?php if (!empty($_SESSION['success_message'])): ?>
-          <div class="alert alert-success alert-dismissible fade show">
-            <i class="fas fa-check-circle me-2"></i><?= $_SESSION['success_message']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-          <?php unset($_SESSION['success_message']); ?>
-        <?php endif; ?>
-
-        <?php if (!empty($_SESSION['error_message'])): ?>
-          <div class="alert alert-danger alert-dismissible fade show">
-            <i class="fas fa-exclamation-triangle me-2"></i><?= $_SESSION['error_message']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-          <?php unset($_SESSION['error_message']); ?>
-        <?php endif; ?>
-
         <!-- ฟอร์มโอนสิทธิ -->
         <div class="card shadow-sm mb-4">
           <div class="card-body">
-            <form method="post" class="row g-3">
+            <form id="transferForm" method="post" class="row g-3" novalidate>
               <div class="col-md-6">
                 <label class="form-label">เลือกรายการครุภัณฑ์</label>
                 <select name="item_id" id="item_id" class="form-select" required>
@@ -232,7 +225,9 @@ $rsHis = mysqli_query($link, $sqlHis);
               </div>
 
               <div class="col-12 d-flex justify-content-end">
-                <button type="submit" class="btn btn-success"><i class="fas fa-check me-1"></i> ยืนยันการโอนสิทธิ</button>
+                <button type="submit" class="btn btn-success">
+                  <i class="fas fa-check me-1"></i> ยืนยันการโอนสิทธิ
+                </button>
               </div>
             </form>
           </div>
@@ -241,7 +236,7 @@ $rsHis = mysqli_query($link, $sqlHis);
         <!-- ตารางประวัติ -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+            <div class="table-responsive" style="max-height: 57vh; overflow-y: auto;">
               <table id="historyTable" class="table table-bordered table-hover align-middle mb-0">
                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                   <tr>
@@ -266,7 +261,12 @@ $rsHis = mysqli_query($link, $sqlHis);
                       <td><?= $h['remarks'] ? htmlspecialchars($h['remarks']) : '-' ?></td>
                     </tr>
                   <?php endwhile; else: ?>
-                    <tr><td colspan="7" class="text-center py-4 text-muted"><i class="fas fa-inbox fa-3x mb-3"></i><div>ยังไม่มีประวัติการโอนสิทธิ</div></td></tr>
+                    <tr>
+                      <td colspan="7" class="text-center py-4 text-muted">
+                        <i class="fas fa-inbox fa-3x mb-3"></i>
+                        <div>ยังไม่มีประวัติการโอนสิทธิ</div>
+                      </td>
+                    </tr>
                   <?php endif; ?>
                 </tbody>
               </table>
@@ -282,12 +282,17 @@ $rsHis = mysqli_query($link, $sqlHis);
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<!-- SweetAlert2 -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  const BRAND_GREEN = '#41B143';
+
   const itemSel   = document.getElementById('item_id');
   const ownerText = document.getElementById('currentOwnerText');
   const newOwner  = document.getElementById('new_owner_id');
+  const form      = document.getElementById('transferForm');
 
   // เปิด Select2 ให้ค้นหาได้
   $(itemSel).select2({ width: '100%', placeholder: '— เลือกครุภัณฑ์ —' });
@@ -320,6 +325,59 @@ document.addEventListener('DOMContentLoaded', function() {
   itemSel.addEventListener('change', updateOwnerInfo);
   $(itemSel).on('select2:select', updateOwnerInfo);
   updateOwnerInfo();
+
+  // Confirm ก่อนส่งฟอร์ม
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+
+    const itemOption = itemSel.options[itemSel.selectedIndex];
+    const itemText   = itemOption ? itemOption.text : '';
+    const curName    = ownerText.textContent || '—';
+    const newOpt     = newOwner.options[newOwner.selectedIndex];
+    const newText    = newOpt ? newOpt.text : '';
+
+    if (!itemSel.value || !newOwner.value) {
+      Swal.fire({icon:'warning', title:'ข้อมูลไม่ครบ', text:'กรุณาเลือกครุภัณฑ์และผู้ถือสิทธิใหม่', confirmButtonColor:BRAND_GREEN});
+      return;
+    }
+
+    // ป้องกันโอนให้คนเดิม (เผื่อกรณีแก้ DOM)
+    const currentOwnerId = itemOption ? Number(itemOption.getAttribute('data-owner-id') || 0) : 0;
+    if (currentOwnerId > 0 && Number(newOwner.value) === currentOwnerId) {
+      Swal.fire({icon:'error', title:'ไม่สามารถโอนได้', text:'ผู้ถือสิทธิใหม่ซ้ำกับเจ้าของเดิม', confirmButtonColor:BRAND_GREEN});
+      return;
+    }
+
+    Swal.fire({
+      icon: 'question',
+      title: 'ยืนยันการโอนสิทธิ?',
+      html: `
+        <div class="text-start">
+          <div><strong>ครุภัณฑ์:</strong> ${itemText ? itemText.replace(/</g,'&lt;') : '-'}</div>
+          <div><strong>จาก:</strong> ${curName ? curName.replace(/</g,'&lt;') : '—'}</div>
+          <div><strong>เป็น:</strong> ${newText ? newText.replace(/</g,'&lt;') : '-'}</div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'ยืนยัน',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: BRAND_GREEN
+    }).then(res => {
+      if (res.isConfirmed) {
+        form.submit();
+      }
+    });
+  });
+
+  // Flash message จาก PHP (SweetAlert2)
+  const flashSuccess = <?php echo json_encode($flash_success, JSON_UNESCAPED_UNICODE); ?>;
+  const flashError   = <?php echo json_encode($flash_error,   JSON_UNESCAPED_UNICODE); ?>;
+  if (flashError) {
+    Swal.fire({ icon:'error', title:'ไม่สามารถดำเนินการได้', text: flashError, confirmButtonColor: BRAND_GREEN });
+  }
+  if (flashSuccess) {
+    Swal.fire({ icon:'success', title:'สำเร็จ', text: flashSuccess, confirmButtonColor: BRAND_GREEN });
+  }
 });
 </script>
 

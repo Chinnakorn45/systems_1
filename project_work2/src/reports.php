@@ -76,9 +76,9 @@ if ($res = mysqli_query($link, $sql_monthly_chart)) {
     while ($row = mysqli_fetch_assoc($res)) $monthly_chart_data[] = $row;
 }
 
-/* ===== กราฟ: มูลค่าตามปีงบประมาณ ===== */
+/* ===== กราฟ: จำนวนชิ้นตามปีงบประมาณ (แทนมูลค่า) ===== */
 $budget_chart_data = [];
-$sql_budget_chart = "SELECT budget_year, SUM(total_price) as total_value
+$sql_budget_chart = "SELECT budget_year, SUM(total_quantity) as total_quantity
                      FROM items
                      WHERE budget_year IS NOT NULL AND budget_year <> ''
                      GROUP BY budget_year
@@ -332,12 +332,12 @@ $result_category_value = mysqli_query($link, $sql_category_value);
         <div class="row g-3 mb-4">
           <div class="col-12">
             <div class="card shadow-sm">
-              <div class="card-header"><i class="fas fa-chart-bar me-2"></i> มูลค่าครุภัณฑ์ตามปีงบประมาณ</div>
+              <div class="card-header"><i class="fas fa-chart-bar me-2"></i> จำนวนครุภัณฑ์ตามปีงบประมาณ</div>
               <div class="card-body">
                 <?php if (count($budget_chart_data)): ?>
                   <div class="chart-container" style="height:260px"><canvas id="budgetChart"></canvas></div>
                 <?php else: ?>
-                  <div class="empty-state text-center"><i class="fa-regular fa-circle-question me-2"></i>ยังไม่มีข้อมูลมูลค่า</div>
+                  <div class="empty-state text-center"><i class="fa-regular fa-circle-question me-2"></i>ยังไม่มีข้อมูลจำนวน</div>
                 <?php endif; ?>
               </div>
             </div>
@@ -591,15 +591,15 @@ $result_category_value = mysqli_query($link, $sql_category_value);
   }
 
   // กราฟรายเดือน (label MM/YY โดย YY = พ.ศ. สองหลัก)
-  const monthly = <?php echo json_encode($monthly_chart_data, JSON_UNESCAPED_UNICODE); ?>;
-  if (monthly && monthly.length && document.getElementById('monthlyChart')) {
-    const labels = monthly.map(r=>{
+  const monthlyData = <?php echo json_encode($monthly_chart_data, JSON_UNESCAPED_UNICODE); ?>;
+  if (monthlyData && monthlyData.length && document.getElementById('monthlyChart')) {
+    const labels = monthlyData.map(r=>{
       const [y,m] = (r.month||'').split('-');
       if (!y || !m) return r.month;
       const yy = String(Number(y) + 543).slice(-2);
       return `${m}/${yy}`;
     });
-    const vals = monthly.map(r => Number(r.borrow_count)||0);
+    const vals = monthlyData.map(r => Number(r.borrow_count)||0);
     new Chart(document.getElementById('monthlyChart'), {
       type:'line',
       data:{ labels, datasets:[{ label:'จำนวนการยืม', data:vals, borderColor:'#2b8a3e', backgroundColor:'rgba(43,138,62,.12)', tension:.15, fill:true }] },
@@ -607,14 +607,26 @@ $result_category_value = mysqli_query($link, $sql_category_value);
     });
   }
 
-  // กราฟมูลค่าปีงบ
-  const budget = <?php echo json_encode($budget_chart_data, JSON_UNESCAPED_UNICODE); ?>;
-  if (budget && budget.length && document.getElementById('budgetChart')) {
-    const labels = budget.map(r => r.budget_year || '');
-    const vals = budget.map(r => Number(r.total_value)||0);
-    new Chart(document.getElementById('budgetChart'), {
+  // กราฟจำนวนชิ้นตามปีงบ (แทนมูลค่า) — ใช้ budgetData เพื่อลดโอกาสชนชื่อ/TDZ
+  const budgetData = <?php echo json_encode($budget_chart_data, JSON_UNESCAPED_UNICODE); ?>;
+  const budgetCanvas = document.getElementById('budgetChart');
+
+  if (Array.isArray(budgetData) && budgetData.length && budgetCanvas) {
+    const labels = budgetData.map(r => r.budget_year || '');
+    const vals   = budgetData.map(r => Number(r.total_quantity) || 0);
+
+    new Chart(budgetCanvas, {
       type:'bar',
-      data:{ labels, datasets:[{ label:'มูลค่าครุภัณฑ์ (บาท)', data:vals, backgroundColor:'rgba(54,162,235,.85)', borderColor:'rgba(54,162,235,1)', borderWidth:1 }] },
+      data:{
+        labels,
+        datasets:[{
+          label:'จำนวนครุภัณฑ์ (ชิ้น)',
+          data: vals,
+          backgroundColor:'rgba(54,162,235,.85)',
+          borderColor:'rgba(54,162,235,1)',
+          borderWidth:1
+        }]
+      },
       options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
     });
   }
