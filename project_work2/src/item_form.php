@@ -54,6 +54,19 @@ while ($lc = mysqli_fetch_assoc($loc_result)) {
     $locations_list[] = $lc['location'];
 }
 
+/* ===== ดึงเลขครุภัณฑ์เดิม (ล่าสุด 100 รายการ) สำหรับ datalist ===== */
+$prev_item_numbers = [];
+$inum_result = mysqli_query($link, "
+    SELECT item_number 
+    FROM items 
+    WHERE item_number IS NOT NULL AND item_number <> ''
+    ORDER BY item_id DESC
+    LIMIT 100
+");
+while ($in = mysqli_fetch_assoc($inum_result)) {
+    $prev_item_numbers[] = $in['item_number'];
+}
+
 /* ===== กำหนดตัวแปรเริ่มต้น ===== */
 $item_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $item_number = $serial_number = $description = $note = $category_id = $total_quantity = $location = $purchase_date = $budget_year = $price_per_unit = $total_price = '';
@@ -415,14 +428,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <div class="container">
     <h2 class="mb-4 text-center text-success"><i class="fas fa-box me-2"></i><?php echo $is_edit ? 'แก้ไข' : 'เพิ่ม'; ?>ครุภัณฑ์</h2>
     <form action="" method="post" enctype="multipart/form-data">
+
+        <!-- เลขครุภัณฑ์: ใส่ datalist + ghost hint + ปุ่มสแกน -->
         <div class="mb-3">
             <label for="item_number" class="form-label">เลขครุภัณฑ์</label>
-            <div class="input-group">
-                <input type="text" class="form-control <?php echo !empty($item_number_err) ? 'is-invalid' : ''; ?>" id="item_number" name="item_number" value="<?php echo htmlspecialchars($item_number); ?>" maxlength="100">
-                <button type="button" class="btn btn-outline-secondary" onclick="openScannerQuagga('item_number')"><i class="fas fa-qrcode me-1"></i> สแกน</button>
+
+            <!-- ชั้นซ้อนเพื่อทำ ghost hint -->
+            <div class="position-relative">
+                <input type="text"
+                        class="form-control <?php echo !empty($item_number_err) ? 'is-invalid' : ''; ?>"
+                        id="item_number" name="item_number"
+                        value="<?php echo htmlspecialchars($item_number); ?>"
+                        maxlength="100"
+                        list="item_number_list"
+                        autocomplete="off"
+                        style="background: transparent; position: relative; z-index: 2;">
+                <!-- ghost hint -->
+                <input type="text" id="item_number_hint" tabindex="-1" aria-hidden="true"
+                        class="form-control"
+                        style="position:absolute; inset:0; color:#9aa0a6; pointer-events:none; z-index:1;"
+                        value="" />
             </div>
+
+            <datalist id="item_number_list">
+                <?php foreach ($prev_item_numbers as $num): ?>
+                    <option value="<?php echo htmlspecialchars($num); ?>"></option>
+                <?php endforeach; ?>
+            </datalist>
+
+
             <div class="invalid-feedback"><?php echo $item_number_err; ?></div>
-            <small class="form-text text-muted">เลขครุภัณฑ์จะถูกตรวจสอบความซ้ำซ้อนอัตโนมัติ</small>
+            <small class="form-text text-muted">ระบบจะเดาและแสดงต่อท้ายอัตโนมัติและตรวจสอบความซ้ำให้ทันที</small>
         </div>
 
         <div class="mb-3">
@@ -852,7 +888,7 @@ function checkDuplicateData(fieldName, value, currentItemId) {
     .then(response => response.json())
     .then(data => {
         const inputField = document.getElementById(fieldName);
-        const feedbackDiv = inputField.parentNode.querySelector('.invalid-feedback');
+        const feedbackDiv = inputField.parentNode.querySelector('.invalid-feedback') || inputField.closest('.mb-3')?.querySelector('.invalid-feedback');
         if (data.duplicate) {
             inputField.classList.add('is-invalid');
             if (feedbackDiv) feedbackDiv.textContent = data.message;
@@ -876,7 +912,7 @@ document.addEventListener('DOMContentLoaded', function() {
         serialNumberInput.addEventListener('blur', function() { checkDuplicateData('serial_number', this.value, currentItemId); });
         serialNumberInput.addEventListener('input', function() {
             this.classList.remove('is-invalid');
-            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback');
+            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback') || this.closest('.mb-3')?.querySelector('.invalid-feedback');
             if (feedbackDiv) feedbackDiv.textContent = '';
         });
     }
@@ -884,7 +920,7 @@ document.addEventListener('DOMContentLoaded', function() {
         itemNumberInput.addEventListener('blur', function() { checkDuplicateData('item_number', this.value, currentItemId); });
         itemNumberInput.addEventListener('input', function() {
             this.classList.remove('is-invalid');
-            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback');
+            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback') || this.closest('.mb-3')?.querySelector('.invalid-feedback');
             if (feedbackDiv) feedbackDiv.textContent = '';
         });
     }
@@ -1315,6 +1351,96 @@ function renderFormCameraPreview(){
         Swal.fire({icon:'success',title:'สำเร็จ',text:successMsg,confirmButtonText:'ตกลง',confirmButtonColor:BRAND_GREEN})
         .then(()=>{ window.location.href='items.php'; });
     }
+})();
+</script>
+
+<!-- ====== Item Number: ghost hint + history (localStorage) ====== -->
+<script>
+(function(){
+  const input = document.getElementById('item_number');
+  const hint  = document.getElementById('item_number_hint');
+  const datalist = document.getElementById('item_number_list');
+
+  if (!input || !hint || !datalist) return;
+
+  const LS_KEY = 'item_number_history';
+  const MAX_HISTORY = 100;
+
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }
+  function saveHistory(val){
+    if (!val) return;
+    const arr = loadHistory().filter(v => v !== val);
+    arr.unshift(val);
+    while (arr.length > MAX_HISTORY) arr.pop();
+    localStorage.setItem(LS_KEY, JSON.stringify(arr));
+  }
+  function mergeSuggestions() {
+    const history = loadHistory();
+    const current = Array.from(datalist.options).map(op => op.value);
+    const merged = [...history, ...current].filter((v,i,a)=>v && a.indexOf(v)===i).slice(0, 200);
+
+    datalist.innerHTML = '';
+    merged.forEach(v=>{
+      const op = document.createElement('option');
+      op.value = v;
+      datalist.appendChild(op);
+    });
+  }
+
+  function findStartsWith(prefix){
+    if (!prefix) return '';
+    prefix = prefix.toLowerCase();
+    const opts = Array.from(datalist.options).map(op => op.value);
+    for (let i=0;i<opts.length;i++){
+      const v = (opts[i]||'')+'';
+      if (v.toLowerCase().startsWith(prefix)) return v;
+    }
+    return '';
+  }
+
+  function updateGhost(){
+    const v = input.value || '';
+    const sug = findStartsWith(v);
+    if (v && sug && sug.toLowerCase() !== v.toLowerCase()){
+      hint.value = v + sug.slice(v.length);
+    } else {
+      hint.value = '';
+    }
+  }
+
+  function acceptHintIfAny(e){
+    const haveHint = hint.value && hint.value.toLowerCase().startsWith((input.value||'').toLowerCase());
+    if (!haveHint) return;
+    const keys = ['ArrowRight','End','Tab'];
+    if (keys.includes(e.key)){
+      input.value = hint.value;
+      hint.value = '';
+      if (e.key !== 'Tab') e.preventDefault();
+      input.dispatchEvent(new Event('blur'));
+    }
+  }
+
+  const form = document.querySelector('form');
+  if (form) {
+    form.addEventListener('submit', ()=>{
+      const val = (input.value||'').trim();
+      if (val) saveHistory(val);
+    });
+  }
+
+  input.addEventListener('input', updateGhost);
+  input.addEventListener('focus',  ()=>{ mergeSuggestions(); updateGhost(); });
+  input.addEventListener('keyup',  acceptHintIfAny);
+  input.addEventListener('change', updateGhost);
+
+  mergeSuggestions();
+  updateGhost();
 })();
 </script>
 </body>

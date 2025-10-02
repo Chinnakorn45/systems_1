@@ -246,8 +246,8 @@ body {
                                                 <i class="fas fa-edit"></i>
                                             </a>
                                             <a href="brands.php?action=delete_model&id=<?php echo $model['model_id']; ?>" class="btn btn-sm btn-danger"
-                                               onclick="return confirm('ยืนยันการลบชื่อรุ่น <?php echo htmlspecialchars($model['model_name']); ?>? การลบชื่อรุ่นอาจส่งผลต่อข้อมูลครุภัณฑ์ที่เกี่ยวข้อง');"
-                                               title="ลบ">
+                                                onclick="return confirm('ยืนยันการลบชื่อรุ่น <?php echo htmlspecialchars($model['model_name']); ?>? การลบชื่อรุ่นอาจส่งผลต่อข้อมูลครุภัณฑ์ที่เกี่ยวข้อง');"
+                                                title="ลบ">
                                                 <i class="fas fa-trash"></i>
                                             </a>
                                         </td>

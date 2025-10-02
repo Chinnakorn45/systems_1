@@ -42,6 +42,15 @@ if (!function_exists('get_movement_type_badge')) {
     return '<span class="badge '.$cls.'">'.get_movement_type_text($type).'</span>';
   }
 }
+if (!function_exists('thaidate')) {
+  function thaidate($format, $dateStr) {
+    if (!$dateStr) return '';
+    $ts = ($dateStr === 'now') ? time() : (is_numeric($dateStr) ? (int)$dateStr : strtotime($dateStr));
+    $thaiYear = (int)date('Y', $ts) + 543;
+    $out = date($format, $ts);
+    return str_replace(date('Y', $ts), (string)$thaiYear, $out);
+  }
+}
 
 /* ===== สรุปสถานะครุภัณฑ์ ===== */
 $equipment_stats = ['total_items'=>0,'total_quantity'=>0,'borrowed_quantity'=>0,'available_quantity'=>0];
@@ -52,7 +61,7 @@ if ($res = mysqli_query($link, $sql_stats)) {
 }
 
 $sql_borrowed = "SELECT COALESCE(SUM(quantity_borrowed),0) as borrowed_quantity 
-                 FROM borrowings WHERE status IN ('borrowed', 'return_pending')";
+                  FROM borrowings WHERE status IN ('borrowed', 'return_pending')";
 if ($res = mysqli_query($link, $sql_borrowed)) {
     $row = mysqli_fetch_assoc($res) ?: ['borrowed_quantity'=>0];
     $equipment_stats['borrowed_quantity'] = (int)$row['borrowed_quantity'];
@@ -76,29 +85,113 @@ if ($res = mysqli_query($link, $sql_monthly_chart)) {
     while ($row = mysqli_fetch_assoc($res)) $monthly_chart_data[] = $row;
 }
 
-/* ===== กราฟ: จำนวนชิ้นตามปีงบประมาณ (แทนมูลค่า) ===== */
+/* ===== กราฟ: จำนวนชิ้นตามปีงบประมาณ ===== */
 $budget_chart_data = [];
 $sql_budget_chart = "SELECT budget_year, SUM(total_quantity) as total_quantity
-                     FROM items
-                     WHERE budget_year IS NOT NULL AND budget_year <> ''
-                     GROUP BY budget_year
-                     ORDER BY budget_year";
+                      FROM items
+                      WHERE budget_year IS NOT NULL AND budget_year <> ''
+                      GROUP BY budget_year
+                      ORDER BY budget_year";
 if ($res = mysqli_query($link, $sql_budget_chart)) {
     while ($row = mysqli_fetch_assoc($res)) $budget_chart_data[] = $row;
 }
 
+/* ===== สถานะครุภัณฑ์รวม (ไว้ใช้กับอินโฟกราฟิกโดนัท) ===== */
+$item_status_agg = ['available'=>0,'borrowed'=>0,'repair'=>0,'maintenance'=>0,'disposed'=>0,'total'=>0];
+
+$sql_item_status = "
+  SELECT
+    COUNT(*) AS total,
+    SUM(CASE WHEN i.is_disposed = 1 THEN 1 ELSE 0 END) AS disposed,
+    SUM(CASE WHEN i.is_disposed = 0
+              AND EXISTS (SELECT 1 FROM borrowings b
+                          WHERE b.item_id = i.item_id
+                            AND b.status IN ('borrowed','pending','overdue'))
+        THEN 1 ELSE 0 END) AS borrowed,
+    SUM(CASE WHEN i.is_disposed = 0
+              AND NOT EXISTS (SELECT 1 FROM borrowings b
+                              WHERE b.item_id = i.item_id
+                                AND b.status IN ('borrowed','pending','overdue'))
+              AND EXISTS (SELECT 1 FROM repairs r
+                          WHERE r.item_id = i.item_id
+                            AND r.status NOT IN ('completed','cancelled'))
+        THEN 1 ELSE 0 END) AS repair,
+    SUM(CASE WHEN i.is_disposed = 0
+              AND NOT EXISTS (SELECT 1 FROM borrowings b
+                              WHERE b.item_id = i.item_id
+                                AND b.status IN ('borrowed','pending','overdue'))
+              AND NOT EXISTS (SELECT 1 FROM repairs r
+                              WHERE r.item_id = i.item_id
+                                AND r.status NOT IN ('completed','cancelled'))
+              AND EXISTS (SELECT 1 FROM equipment_movements em
+                          WHERE em.item_id = i.item_id
+                            AND em.movement_type IN ('maintenance','disposal'))
+        THEN 1 ELSE 0 END) AS maintenance,
+    SUM(CASE WHEN i.is_disposed = 0
+              AND NOT EXISTS (SELECT 1 FROM borrowings b
+                              WHERE b.item_id = i.item_id
+                                AND b.status IN ('borrowed','pending','overdue'))
+              AND NOT EXISTS (SELECT 1 FROM repairs r
+                              WHERE r.item_id = i.item_id
+                                AND r.status NOT IN ('completed','cancelled'))
+              AND NOT EXISTS (SELECT 1 FROM equipment_movements em
+                              WHERE em.item_id = i.item_id
+                                AND em.movement_type IN ('maintenance','disposal'))
+        THEN 1 ELSE 0 END) AS available
+  FROM items i
+";
+if ($res = mysqli_query($link, $sql_item_status)) {
+    if ($row = mysqli_fetch_assoc($res)) {
+        $item_status_agg['total']       = (int)$row['total'];
+        $item_status_agg['disposed']    = (int)$row['disposed'];
+        $item_status_agg['borrowed']    = (int)$row['borrowed'];
+        $item_status_agg['repair']      = (int)$row['repair'];
+        $item_status_agg['maintenance'] = (int)$row['maintenance'];
+        $item_status_agg['available']   = (int)$row['available'];
+    }
+}
+
+/* ====== Donut (ใช้ $item_status_agg) ====== */
+$ig_labels = ['พร้อมใช้งาน','กำลังยืม','ส่งซ่อม','บำรุงรักษา','จำหน่ายแล้ว'];
+$ig_keys   = ['available','borrowed','repair','maintenance','disposed'];
+$ig_colors = ['#2b8a3e','#1971c2','#f59f00','#0c8599','#868e96'];
+$ig_values = [];
+$ig_total  = 0;
+foreach ($ig_keys as $k) { $v = (int)($item_status_agg[$k] ?? 0); $ig_values[]=$v; $ig_total+=$v; }
+$ig_labels_json = json_encode($ig_labels, JSON_UNESCAPED_UNICODE);
+$ig_values_json = json_encode($ig_values);
+$ig_colors_json = json_encode($ig_colors);
+$ig_center_text = $ig_total > 0 ? "TOTAL: {$ig_total}" : "NO DATA";
+
+/* ====== Bars-ซ้าย: Top หมวดหมู่ (ไม่นับที่จำหน่ายแล้ว) ====== */
+$cat_rows = [];
+$sql_cat = "
+  SELECT c.category_name, COUNT(i.item_id) AS item_count
+  FROM categories c
+  LEFT JOIN items i
+    ON i.category_id = c.category_id
+    AND i.is_disposed = 0
+  GROUP BY c.category_id
+  HAVING item_count > 0
+  ORDER BY item_count DESC
+  
+";
+if ($res = mysqli_query($link, $sql_cat)) {
+  while ($r = mysqli_fetch_assoc($res)) {
+    $cat_rows[] = ['name'=>$r['category_name'], 'count'=>(int)$r['item_count']];
+  }
+}
+$cat_rows_json = json_encode($cat_rows, JSON_UNESCAPED_UNICODE);
+
 /* ===== ตาราง: การยืม-คืน 10 ล่าสุด ===== */
 $sql_borrowings = "SELECT b.*, i.model_name, i.item_number, u.full_name
-                   FROM borrowings b
-                   LEFT JOIN items i ON b.item_id = i.item_id
-                   LEFT JOIN users u ON b.user_id = u.user_id
-                   ORDER BY b.borrow_date DESC LIMIT 10";
+                    FROM borrowings b
+                    LEFT JOIN items i ON b.item_id = i.item_id
+                    LEFT JOIN users u ON b.user_id = u.user_id
+                    ORDER BY b.borrow_date DESC LIMIT 10";
 $result_borrowings = mysqli_query($link, $sql_borrowings);
 
-/* =================================================================
-   ตาราง: การเคลื่อนไหว 10 ล่าสุด (แบบหน้าตัวอย่าง)
-   - รวม equipment_movements + equipment_history (โอนสิทธิ)
-================================================================= */
+/* ===== ตาราง: การเคลื่อนไหว 10 ล่าสุด ===== */
 $sub_movements = "
   SELECT
     m.movement_date,
@@ -117,7 +210,6 @@ $sub_movements = "
     CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS to_user_dept_r
   FROM equipment_movements m
 ";
-
 $sub_history = "
   SELECT
     h.change_date AS movement_date,
@@ -141,9 +233,7 @@ $sub_history = "
   LEFT JOIN users un_name ON (NOT h.new_value REGEXP '^[0-9]+$' AND un_name.full_name COLLATE utf8mb4_unicode_ci = h.new_value COLLATE utf8mb4_unicode_ci)
   WHERE h.action_type = 'transfer_ownership'
 ";
-
 $base_union = "($sub_movements UNION ALL $sub_history) AS mv";
-
 $sql_movements_latest = "
   SELECT
     mv.movement_date, mv.movement_type, mv.item_id, mv.quantity,
@@ -169,10 +259,10 @@ $result_movements = mysqli_query($link, $sql_movements_latest);
 $sql_category_value = "SELECT c.category_name,
                               COALESCE(SUM(i.total_price),0) as category_value,
                               COUNT(i.item_id) as item_count
-                       FROM categories c
-                       LEFT JOIN items i ON c.category_id = i.category_id AND i.total_price > 0
-                       GROUP BY c.category_id
-                       ORDER BY category_value DESC";
+                        FROM categories c
+                        LEFT JOIN items i ON c.category_id = i.category_id AND i.total_price > 0
+                        GROUP BY c.category_id
+                        ORDER BY category_value DESC";
 $result_category_value = mysqli_query($link, $sql_category_value);
 ?>
 <!DOCTYPE html>
@@ -215,6 +305,38 @@ $result_category_value = mysqli_query($link, $sql_category_value);
     .modal-header{background:#2e7d32;color:#fff}
     .modal-header .btn-close{filter:invert(1)}
     footer{background:#ffffff;border-top:1px solid #e9ecef}
+
+    /* ===== Infographic Donut + Bars ===== */
+    .ig-card { display:grid; grid-template-columns: 1fr; gap:20px; }
+    @media (min-width: 992px){ .ig-card { grid-template-columns: 1.2fr 1fr; } }
+
+    /* Bars (หมวดหมู่ แนวนอนแบบ pill) */
+    .ig-bars{ align-self:center; }
+    .ig-bars .bar-row{ margin:10px 0; }
+    .ig-bars .bar-title{ font-size:.95rem; margin-bottom:6px; color:#364756; display:flex; justify-content:space-between; }
+    .ig-bars .bar-track{
+      width:100%; height:28px; background:#e9ecef; border-radius:999px; position:relative; overflow:hidden;
+    }
+    .ig-bars .bar-fill{
+      position:absolute; top:0; left:0; height:100%;
+      border-radius:999px; display:flex; align-items:center; padding-left:12px; color:#fff; font-weight:700;
+      min-width:72px;
+    }
+
+    .ig-chart-wrap{
+      position:relative; width:100%; max-width:720px; height:520px; margin:0 auto;
+    }
+    .ig-chart-wrap canvas{ position:absolute; inset:0; }
+    .ig-center-text{
+      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      text-align:center; font-weight:700; color:#364756; line-height:1.2;
+    }
+    .ig-center-text .lg{ font-size:1.6rem; }
+    .ig-center-text .sm{ font-size:.95rem; opacity:.75; }
+    .ig-legend{ margin-top:8px; }
+    .ig-legend .legend-item{ display:flex; align-items:center; gap:8px; margin:8px 0; }
+    .ig-legend .dot{ width:14px; height:14px; border-radius:50%; flex:0 0 14px; }
+    .ig-legend .lbl{ font-size:.95rem; }
 </style>
 </head>
 <body>
@@ -250,59 +372,36 @@ $result_category_value = mysqli_query($link, $sql_category_value);
       </div>
 
       <div class="main-content px-3 px-md-4 my-4">
-        <!-- Stats -->
-        <div id="report-summary">
-          <h5 class="section-title mb-3"><i class="fas fa-boxes me-2 text-success"></i> รายงานสถานะครุภัณฑ์</h5>
-          <div class="row g-3 mb-4">
-            <div class="col-6 col-md-3">
-              <div class="stats-card h-100">
-                <div class="d-flex align-items-center">
-                  <div class="stats-icon bg-primary-gradient me-3"><i class="fas fa-boxes"></i></div>
-                  <div>
-                    <h3 class="mb-0"><?php echo safe_number($equipment_stats['total_quantity']); ?></h3>
-                    <small class="text-muted">ครุภัณฑ์ทั้งหมด (ชิ้น)</small>
+        <!-- อินโฟกราฟิกโดนัท + แท่งแนวนอน (หมวดหมู่) -->
+        <div class="card shadow-sm mb-4">
+          <div class="card-header">
+            <i class="fas fa-chart-pie me-2"></i>
+            อินโฟกราฟิกสถานะครุภัณฑ์ (Donut) + หมวดหมู่ (แท่งแนวนอน)
+          </div>
+          <div class="card-body">
+            <?php if ($ig_total > 0): ?>
+              <div class="ig-card">
+                <!-- Bars Left -->
+                <div class="ig-bars" id="igBars"></div>
+
+                <!-- Donut Right -->
+                <div>
+                  <div class="ig-chart-wrap">
+                    <canvas id="igDonut"></canvas>
+                    <div class="ig-center-text">
+                      <div class="lg"><?php echo htmlspecialchars($ig_center_text); ?></div>
+                      <div class="sm">รายการทั้งหมด</div>
+                    </div>
                   </div>
+                  <div class="ig-legend" id="igLegend"></div>
                 </div>
               </div>
-            </div>
-            <div class="col-6 col-md-3">
-              <div class="stats-card h-100">
-                <div class="d-flex align-items-center">
-                  <div class="stats-icon bg-success-gradient me-3"><i class="fas fa-check-circle"></i></div>
-                  <div>
-                    <h3 class="mb-0"><?php echo safe_number($equipment_stats['available_quantity']); ?></h3>
-                    <small class="text-muted">จำนวนที่ว่าง</small>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="col-6 col-md-3">
-              <div class="stats-card h-100">
-                <div class="d-flex align-items-center">
-                  <div class="stats-icon bg-warning-gradient me-3"><i class="fas fa-clock"></i></div>
-                  <div>
-                    <h3 class="mb-0"><?php echo safe_number($equipment_stats['borrowed_quantity']); ?></h3>
-                    <small class="text-muted">จำนวนที่ยืมอยู่</small>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="col-6 col-md-3">
-              <div class="stats-card h-100">
-                <div class="d-flex align-items-center">
-                  <div class="stats-icon bg-info-gradient me-3"><i class="fas fa-layer-group"></i></div>
-                  <div>
-                    <h3 class="mb-0"><?php echo safe_number($equipment_stats['total_items']); ?></h3>
-                    <small class="text-muted">จำนวนรายการ (ชนิด)</small>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <?php else: ?>
+              <div class="empty-state text-center"><i class="fa-regular fa-circle-question me-2"></i>ยังไม่มีข้อมูลสำหรับแสดงอินโฟกราฟิก</div>
+            <?php endif; ?>
           </div>
         </div>
 
-        <!-- Charts -->
-        <h5 class="section-title mb-3"><i class="fas fa-chart-pie me-2 text-success"></i> กราฟและแผนภูมิ</h5>
         <div class="row g-3 mb-3">
           <div class="col-md-6">
             <div class="card shadow-sm h-100">
@@ -466,45 +565,6 @@ $result_category_value = mysqli_query($link, $sql_category_value);
           </div>
         </div>
 
-        <!-- Value Table -->
-        <div id="report-value">
-          <h5 class="section-title mb-3"><i class="fas fa-money-bill-wave me-2 text-success"></i> รายงานมูลค่าครุภัณฑ์</h5>
-          <div class="card shadow-sm mb-4">
-            <div class="card-body">
-              <?php if ($result_category_value && mysqli_num_rows($result_category_value) > 0): ?>
-                <div class="table-responsive">
-                  <table class="table table-bordered table-hover align-middle">
-                    <thead>
-                      <tr>
-                        <th>หมวดหมู่</th>
-                        <th class="text-center">จำนวนครุภัณฑ์</th>
-                        <th class="text-end">มูลค่ารวม (บาท)</th>
-                        <th class="text-end">มูลค่าเฉลี่ย (บาท)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <?php while ($row = mysqli_fetch_assoc($result_category_value)):
-                        $count = (int)($row['item_count'] ?? 0);
-                        $value = (float)($row['category_value'] ?? 0);
-                        $avg = $count > 0 ? $value / $count : 0;
-                      ?>
-                      <tr>
-                        <td><?php echo htmlspecialchars($row['category_name'] ?? '-'); ?></td>
-                        <td class="text-center"><?php echo safe_number($count); ?></td>
-                        <td class="text-end"><?php echo safe_number($value, 2); ?></td>
-                        <td class="text-end"><?php echo safe_number($avg, 2); ?></td>
-                      </tr>
-                      <?php endwhile; ?>
-                    </tbody>
-                  </table>
-                </div>
-              <?php else: ?>
-                <div class="empty-state text-center"><i class="fa-regular fa-circle-question me-2"></i>ยังไม่มีข้อมูลมูลค่าครุภัณฑ์</div>
-              <?php endif; ?>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- Print Modal -->
       <div class="modal fade" id="printReportModal" tabindex="-1" aria-labelledby="printReportModalLabel" aria-hidden="true">
@@ -570,17 +630,113 @@ $result_category_value = mysqli_query($link, $sql_category_value);
     bootstrap.Modal.getInstance(document.getElementById('printReportModal'))?.hide();
   });
 
+  /* ===== Data ===== */
+  const IG = {
+    labels: <?php echo $ig_labels_json; ?>,
+    values: <?php echo $ig_values_json; ?>,
+    colors: <?php echo $ig_colors_json; ?>,
+    total:  <?php echo (int)$ig_total; ?>
+  };
+
+  const CAT = {
+    rows: <?php echo $cat_rows_json; ?>,
+    // สี/ไล่เฉดแบบตัวอย่าง (5 แท่ง)
+    fills: [
+      'linear-gradient(90deg,#8a0f4d,#ff3d64)',
+      'linear-gradient(90deg,#ff7b2c,#f7c32e)',
+      'linear-gradient(90deg,#0b8bd9,#22c1c3)',
+      'linear-gradient(90deg,#1446d4,#21c8d2)',
+      'linear-gradient(90deg,#5b2dee,#a94cf5)'
+    ]
+  };
+
+  /* ===== Bars-ซ้าย: แสดงหมวดหมู่ (จำนวน) ===== */
+  (function renderCategoryBars(){
+    const host = document.getElementById('igBars');
+    if (!host || !Array.isArray(CAT.rows) || !CAT.rows.length) return;
+    const max = Math.max(...CAT.rows.map(r => Number(r.count)||0), 1);
+
+    const frag = document.createDocumentFragment();
+    CAT.rows.forEach((r, i) => {
+      const val = Number(r.count||0);
+      const w = Math.max(6, (val / max) * 100);
+      const row = document.createElement('div');
+      row.className = 'bar-row';
+      row.innerHTML = `
+        <div class="bar-title">
+          <span>${r.name}</span>
+          <span><strong>${val}</strong> ชิ้น</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${w}%; background:${CAT.fills[i % CAT.fills.length]}">
+            <span class="bar-count"></span>
+          </div>
+        </div>
+      `;
+      frag.appendChild(row);
+    });
+    host.innerHTML = '';
+    host.appendChild(frag);
+  })();
+
+  /* ===== Donut ขวา (สถานะ) ===== */
+  (function renderIGDonut(){
+    const ctx = document.getElementById('igDonut');
+    if (!ctx || !IG.total) return;
+    new Chart(ctx, {
+      type:'doughnut',
+      data:{
+        labels: IG.labels,
+        datasets:[{
+          data: IG.values,
+          backgroundColor: IG.colors,
+          borderColor: '#ffffff',
+          borderWidth: 2,
+          hoverOffset: 8
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        cutout:'62%',
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            callbacks:{
+              label: (ctx)=>{
+                const v = ctx.parsed ?? 0;
+                const pct = IG.total ? ((v/IG.total)*100).toFixed(1) : '0.0';
+                return `${ctx.label}: ${v} (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Legend ใต้โดนัท
+    const host = document.getElementById('igLegend');
+    if (host){
+      const frag = document.createDocumentFragment();
+      IG.labels.forEach((lb,i)=>{
+        const v = Number(IG.values[i]||0);
+        const pct = IG.total ? Math.round((v/IG.total)*100) : 0;
+        const row = document.createElement('div');
+        row.className = 'legend-item';
+        row.innerHTML = `
+          <span class="dot" style="background:${IG.colors[i]}"></span>
+          <span class="lbl">${lb}: <strong>${v}</strong> ชิ้น <span class="text-muted">(${pct}%)</span></span>
+        `;
+        frag.appendChild(row);
+      });
+      host.innerHTML = '';
+      host.appendChild(frag);
+    }
+  })();
+
   // กราฟ: สถานะการยืม-คืน
   const statusData = <?php echo json_encode($status_chart_data, JSON_UNESCAPED_UNICODE); ?>;
   if (statusData && statusData.length && document.getElementById('statusChart')) {
-    const mapTH = {
-      'pending':'รออนุมัติ',
-      'borrowed':'กำลังยืม',
-      'return_pending':'รอยืนยันคืน',
-      'returned':'คืนแล้ว',
-      'cancelled':'ยกเลิก',
-      'overdue':'เกินกำหนด'
-    };
+    const mapTH = { 'pending':'รออนุมัติ','borrowed':'กำลังยืม','return_pending':'รอยืนยันคืน','returned':'คืนแล้ว','cancelled':'ยกเลิก','overdue':'เกินกำหนด' };
     const labels = statusData.map(r => mapTH[r.status] ?? r.status);
     const data = statusData.map(r => Number(r.count)||0);
     new Chart(document.getElementById('statusChart'), {
@@ -590,7 +746,7 @@ $result_category_value = mysqli_query($link, $sql_category_value);
     });
   }
 
-  // กราฟรายเดือน (label MM/YY โดย YY = พ.ศ. สองหลัก)
+  // กราฟรายเดือน
   const monthlyData = <?php echo json_encode($monthly_chart_data, JSON_UNESCAPED_UNICODE); ?>;
   if (monthlyData && monthlyData.length && document.getElementById('monthlyChart')) {
     const labels = monthlyData.map(r=>{
@@ -607,26 +763,15 @@ $result_category_value = mysqli_query($link, $sql_category_value);
     });
   }
 
-  // กราฟจำนวนชิ้นตามปีงบ (แทนมูลค่า) — ใช้ budgetData เพื่อลดโอกาสชนชื่อ/TDZ
+  // กราฟจำนวนชิ้นตามปีงบ
   const budgetData = <?php echo json_encode($budget_chart_data, JSON_UNESCAPED_UNICODE); ?>;
   const budgetCanvas = document.getElementById('budgetChart');
-
   if (Array.isArray(budgetData) && budgetData.length && budgetCanvas) {
     const labels = budgetData.map(r => r.budget_year || '');
     const vals   = budgetData.map(r => Number(r.total_quantity) || 0);
-
     new Chart(budgetCanvas, {
       type:'bar',
-      data:{
-        labels,
-        datasets:[{
-          label:'จำนวนครุภัณฑ์ (ชิ้น)',
-          data: vals,
-          backgroundColor:'rgba(54,162,235,.85)',
-          borderColor:'rgba(54,162,235,1)',
-          borderWidth:1
-        }]
-      },
+      data:{ labels, datasets:[{ label:'จำนวนครุภัณฑ์ (ชิ้น)', data: vals, backgroundColor:'rgba(54,162,235,.85)', borderColor:'rgba(54,162,235,1)', borderWidth:1 }] },
       options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
     });
   }
