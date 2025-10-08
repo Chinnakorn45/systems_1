@@ -285,5 +285,6 @@ h3 {
     </table>
     </div>
 </div>
+<?php include 'toast.php'; ?>
 </body>
-</html> 
+</html>

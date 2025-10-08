@@ -34,7 +34,7 @@ function is_active($names, $current) {
         <i class="fa-solid fa-circle-plus me-2"></i> เพิ่มวัสดุ
       </a>
       <?php endif; ?>
-      <a class="list-group-item list-group-item-action <?= is_active('borrowings', $current) ?>" href="dispensations.php">
+      <a class="list-group-item list-group-item-action <?= is_active('dispensations', $current) ?>" href="dispensations.php">
         <i class="fa-solid fa-hand-holding me-2"></i> การเบิกวัสดุสำนักงาน
       </a>
 
@@ -54,7 +54,7 @@ function is_active($names, $current) {
 </div>
 
 <!-- ========== Desktop Sidebar ========== -->
-<div class="col-md-3 col-lg-2 px-0 d-none d-md-block">
+<div class="col-md-3 col-lg-2 px-0 d-none d-md-block sidebar-fixed-col">
   <aside class="app-sidebar h-100 border-end">
     <div class="p-3 border-bottom">
       <div class="fw-semibold"><?= htmlspecialchars($full_name) ?></div>
@@ -75,7 +75,7 @@ function is_active($names, $current) {
         <i class="fa-solid fa-circle-plus me-2"></i> เพิ่มวัสดุ
       </a>
       <?php endif; ?>
-      <a class="nav-link <?= is_active('borrowings', $current) ?>" href="dispensations.php">
+      <a class="nav-link <?= is_active('dispensations', $current) ?>" href="dispensations.php">
         <i class="fa-solid fa-hand-holding me-2"></i> การเบิกวัสดุสำนักงาน
       </a>
       <!-- ✅ คงไว้เฉพาะ "รายงาน" -->

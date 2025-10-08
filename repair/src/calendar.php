@@ -162,5 +162,6 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
+<?php include 'toast.php'; ?>
 </body>
 </html>

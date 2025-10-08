@@ -95,7 +95,7 @@ $result = mysqli_query($link, $sql);
   <link rel="stylesheet" href="<?= htmlspecialchars(asset_url('sidebar.css')) ?>">
   <link rel="stylesheet" href="<?= htmlspecialchars(asset_url('common-ui.css')) ?>">
 </head>
-<body>
+<body class="table-lock">
 
 <!-- Navbar (Mobile Only) -->
 <nav class="navbar navbar-light bg-white d-md-none shadow-sm sticky-top">
@@ -134,7 +134,7 @@ $result = mysqli_query($link, $sql);
         <div class="card shadow-sm">
           <div class="card-body p-0">
             <!-- เลื่อนเฉพาะตาราง + thead sticky -->
-            <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+            <div class="table-responsive">
               <table class="table table-bordered table-hover align-middle mb-0">
                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                   <tr>

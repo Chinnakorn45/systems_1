@@ -60,5 +60,6 @@ session_start();
     </ul>
     <hr>
 </div>
+<?php include 'toast.php'; ?>
 </body>
 </html>

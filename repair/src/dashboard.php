@@ -407,6 +407,7 @@ function thaidate($date, $format = 'j F Y')
             });
         })();
     </script>
+<?php include 'toast.php'; ?>
 </body>
 
 </html>

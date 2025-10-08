@@ -1,10 +1,40 @@
 /* =====================
+  Premium Theme (Palette & Base)
+   ===================== */
+:root {
+  --brand-bg:        #f8fafc;     /* brighter page background */
+  --brand-surface:   #ffffff;     /* cards, containers */
+  --brand-border:    #e5e7eb;
+  --brand-text:      #111827;
+  --brand-muted:     #6b7280;
+
+  /* Vibrant palette */
+  --brand-primary:   #2563eb;     /* vibrant blue */
+  --brand-primary-2: #1e40af;     /* deeper blue */
+  --brand-info:      #0ea5e9;     /* bright cyan */
+  --brand-success:   #10b981;     /* emerald */
+  --brand-warning:   #f59e0b;     /* amber */
+  --brand-danger:    #ef4444;     /* red */
+  --brand-secondary: #64748b;     /* slate */
+
+  /* Bootstrap color bindings */
+  --bs-primary:   var(--brand-primary);
+  --bs-secondary: var(--brand-secondary);
+  --bs-info:      var(--brand-info);
+  --bs-success:   var(--brand-success);
+  --bs-warning:   var(--brand-warning);
+  --bs-danger:    var(--brand-danger);
+  --bs-light:     #f8fafc;
+  --bs-dark:      var(--brand-primary-2);
+}
+
+/* =====================
   โครงสร้างหลักและฟอนต์ (Body, Font, สีพื้นหลัง)
    ===================== */
 body {
   font-family: 'Sarabun', 'Prompt', 'Segoe UI', 'Tahoma', 'Geneva', 'Verdana', sans-serif;
-  background: #f4f6fa;
-  color: #222;
+  background: var(--brand-bg);
+  color: var(--brand-text);
   margin: 0;
 }
 
@@ -17,28 +47,28 @@ body {
   left: 0;
   width: 220px;
   height: 100%;
-  background: #0066cc;
+  background: linear-gradient(180deg, var(--brand-primary-2) 0%, var(--brand-primary) 100%);
   color: #fff;
-  box-shadow: 4px 0 20px rgba(0, 102, 204, 0.3);
+  box-shadow: 6px 0 28px rgba(15, 23, 42, 0.35);
   z-index: 1000;
   display: flex;
   flex-direction: column;
 }
 .sidebar-logo { /* โลโก้หรือชื่อระบบด้านบนสุดของ sidebar */
-  background: #0052a3;
+  background: rgba(255, 255, 255, 0.04);
   color: #fff;
   font-size: 1.3rem;
-  font-weight: bold;
+  font-weight: 700;
   text-align: center;
   padding: 22px 0 12px 0;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(224, 181, 97, 0.35); /* gold accent */
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
 }
 .sidebar-header { /* หัวข้อเมนู */
-  font-size: 1.1rem;
-  font-weight: bold;
+  font-size: 1.05rem;
+  font-weight: 700;
   padding: 18px 24px 10px 24px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(224, 181, 97, 0.22);
   background: rgba(255, 255, 255, 0.05);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
@@ -56,17 +86,17 @@ body {
   text-decoration: none;
   padding: 14px 28px;
   font-size: 1rem;
-  border-left: 4px solid rgba(255, 255, 255, 0.1);
-  transition: background 0.2s, border 0.2s, color 0.2s;
+  border-left: 4px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.2s, border 0.2s, color 0.2s, transform .15s ease;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .sidebar-menu a:hover,
 .sidebar-menu a.active {
-  background: rgba(255, 255, 255, 0.15);
-  border-left: 4px solid #fff;
+  background: rgba(224, 181, 97, 0.18);
+  border-left: 4px solid var(--brand-warning);
   color: #fff;
-  transform: translateX(5px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transform: translateX(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
 /* =====================
@@ -77,15 +107,63 @@ body {
   margin-right: 40px !important; /* ระยะขอบขวา */
   margin-bottom: 40px;
   max-width: calc(100vw - 300px); /* ป้องกันล้นขอบขวา */
-  background: #fff;
+  background: var(--brand-surface);
   border-radius: 18px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  box-shadow: 0 10px 30px rgba(27, 41, 69, 0.06);
+  border: 1px solid var(--brand-border);
   padding: 32px 32px 24px 32px;
 }
 h3, h5, .card-header { /* หัวข้อหลัก */
+  font-weight: 650;
+  color: var(--brand-primary);
+  letter-spacing: 0.4px;
+}
+
+/* =====================
+  Utilities (ยูทิลิตี้ที่ใช้ซ้ำ)
+   ===================== */
+.img-thumb-click {
+  cursor: zoom-in;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.img-thumb-click:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0,0,0,.12);
+}
+.img-thumbnail {
+  border-radius: 12px;
+}
+.badge {
+  font-weight: 500;
+  letter-spacing: .2px;
+  padding: .45em .6em;
+}
+.alert {
+  border-radius: 12px;
+}
+
+/* =====================
+  Cards & Forms (การ์ดและฟอร์ม)
+   ===================== */
+.card {
+  border-radius: 14px;
+  border: 1px solid #e9eef6;
+  box-shadow: 0 2px 10px rgba(0,0,0,.05);
+}
+.card .card-body b {
+  color: #173a5e;
   font-weight: 600;
-  color: #223a5e;
-  letter-spacing: 0.5px;
+}
+.form-control,
+.form-select {
+  border-radius: 10px;
+  border-color: #d8e1ee;
+  box-shadow: none;
+}
+.form-control:focus,
+.form-select:focus {
+  border-color: #7aa2e3;
+  box-shadow: 0 0 0 .2rem rgba(122,162,227,.2);
 }
 
 /* =====================
@@ -96,52 +174,59 @@ h3, h5, .card-header { /* หัวข้อหลัก */
 .btn-danger,
 .btn-warning,
 .btn-info {
-  border-radius: 8px;
-  font-weight: 500;
-  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.06);
-  transition: background 0.2s, box-shadow 0.2s;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(20, 30, 48, 0.12);
+  transition: background 0.2s, box-shadow 0.2s, transform .05s ease;
 }
 .btn-primary {
-  background: #223a5e;
+  background: var(--brand-primary);
   border: none;
 }
 .btn-primary:hover {
-  background: #1b2a47;
+  background: var(--brand-primary-2);
 }
 .btn-danger {
-  background: #bf083f;
+  background: var(--brand-danger);
   border: none;
   color: #fff;
 }
 .btn-danger:hover {
-  background: #8a062e;
+  background: #a84343;
 }
+.btn-success { background: var(--brand-success); border: none; }
+.btn-success:hover { background: #277a5e; }
+.btn-warning { background: var(--brand-warning); border: none; color: #1f2937; }
+.btn-warning:hover { background: #d5a84f; color: #111827; }
+.btn-info { background: var(--brand-info); border: none; }
+.btn-info:hover { background: #0284c7; }
+.btn:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(20,30,48,.16); }
 
 /* =====================
   Modal (Bootstrap 5) (หน้าต่างป๊อปอัป)
    ===================== */
 .modal-content {
   border-radius: 15px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
   border: none;
 }
 .modal-header {
-  background-color: #f7f9fc;
-  border-bottom: 1px solid #e0e0e0;
+  background-color: #f5f7fb;
+  border-bottom: 1px solid var(--brand-border);
   border-top-left-radius: 15px;
   border-top-right-radius: 15px;
 }
 .modal-title {
-  font-weight: bold;
-  font-size: 1.25rem;
-  color: #223a5e;
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--brand-primary);
 }
 .modal-body {
-  background-color: #ffffff;
+  background-color: var(--brand-surface);
 }
 .modal-footer {
-  border-top: 1px solid #e0e0e0;
-  background-color: #f7f9fc;
+  border-top: 1px solid var(--brand-border);
+  background-color: #f5f7fb;
   border-bottom-left-radius: 15px;
   border-bottom-right-radius: 15px;
 }
@@ -151,8 +236,8 @@ h3, h5, .card-header { /* หัวข้อหลัก */
   margin-bottom: 4px;
 }
 .modal-body .form-control {
-  background-color: #f1f3f5;
-  border: 1px solid #ced4da;
+  background-color: #f8fafc;
+  border: 1px solid #dde3ee;
   border-radius: 10px;
   font-size: 0.95rem;
   color: #333;
@@ -186,43 +271,70 @@ h3, h5, .card-header { /* หัวข้อหลัก */
     padding: 12px 8px;
     box-sizing: border-box;
   }
+  .img-thumbnail { width: 100%; height: auto; }
+  .card { border-radius: 12px; }
 }
 
 /* =====================
   Dashboard (แดชบอร์ด)
    ===================== */
-body { background: #f4f6fb; }
+body { background: var(--brand-bg); }
 .dashboard-card {
   border-radius: 18px;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.07);
-  background: #fff;
-  border: 1px solid #e3e8f0;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.08);
+  background: var(--brand-surface);
+  border: 1px solid var(--brand-border);
   transition: box-shadow 0.2s;
 }
 .dashboard-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
 .dashboard-card .icon { font-size: 2.2rem; }
-.dashboard-card .number { font-size: 2.5rem; font-weight: bold; color: #2d6cdf; }
+.dashboard-card .number { font-size: 2.5rem; font-weight: bold; color: var(--brand-warning); }
 .dashboard-section { margin-bottom: 2rem; }
 .dashboard-table th, .dashboard-table td { font-size: 1.05rem; }
 .dashboard-table th {
-  background: #e9f2fb;
-  color: #1a355e;
+  background: #eef4fb;
+  color: var(--brand-primary);
   font-weight: bold;
-  border-bottom: 2px solid #b6d4fa;
+  border-bottom: 2px solid #d8e3f3;
 }
-.dashboard-table tbody tr:hover { background: #f1f7ff; }
+.dashboard-table tbody tr:hover { background: #f8fbff; }
 .dashboard-alert {
-  background: #fffbe6;
+  background: #fff8e2;
   border-radius: 12px;
   padding: 1rem 1.2rem;
   margin-bottom: 1rem;
-  border: 1px solid #ffe58f;
+  border: 1px solid #f2d48a;
   box-shadow: 0 2px 8px rgba(255, 215, 0, 0.07);
 }
-h2.mb-4 { color: #1a355e; font-weight: bold; letter-spacing: 1px; }
-.fw-bold { color: #1a355e; }
-.dashboard-card .icon.text-primary { color: #2d6cdf !important; }
-.dashboard-card .icon.text-warning { color: #f7b731 !important; }
-.dashboard-card .icon.text-success { color: #4cd964 !important; }
-.dashboard-card .icon.text-info { color: #45aaf2 !important; }
+h2.mb-4 { color: var(--brand-primary); font-weight: bold; letter-spacing: 1px; }
+.fw-bold { color: var(--brand-primary); }
+.dashboard-card .icon.text-primary { color: var(--brand-info) !important; }
+.dashboard-card .icon.text-warning { color: var(--brand-warning) !important; }
+.dashboard-card .icon.text-success { color: var(--brand-success) !important; }
+.dashboard-card .icon.text-info { color: var(--brand-info) !important; }
+
+/* =====================
+  Badge color polish (ensure readable on premium palette)
+   ===================== */
+.badge.bg-info { background-color: var(--brand-info) !important; color: #fff; }
+.badge.bg-primary { background-color: var(--brand-primary) !important; color: #fff; }
+.badge.bg-warning { background-color: var(--brand-warning) !important; color: #1f2937; }
+.badge.bg-success { background-color: var(--brand-success) !important; color: #fff; }
+.badge.bg-danger { background-color: var(--brand-danger) !important; color: #fff; }
+.badge.bg-secondary { background-color: var(--brand-secondary) !important; color: #111827; }
+
+/* =====================
+  FullCalendar polish (generic)
+   ===================== */
+.fc .fc-daygrid-event, .fc .fc-list-event {
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, var(--brand-info), var(--brand-primary));
+  color: #fff;
+}
+.fc .fc-button-primary {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+.fc .fc-button-primary:hover { background: var(--brand-primary-2); border-color: var(--brand-primary-2); }
   

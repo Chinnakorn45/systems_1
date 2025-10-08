@@ -204,6 +204,12 @@ while ($row = mysqli_fetch_assoc($res)) {
     <!-- Main -->
     <div class="col-md-9 col-lg-10 px-0">
       <div class="main-content mt-4 mt-md-5">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+          <div>
+            <h2 class="mb-1"><i class="fa-solid fa-chart-line me-2"></i>แดชบอร์ดวัสดุสำนักงาน</h2>
+            <div class="section-subtitle">ภาพรวมสต็อกและการเบิกล่าสุด</div>
+          </div>
+        </div>
         <!-- Top stats -->
         <div class="row g-3 g-lg-4 mb-3">
           <div class="col-12 col-sm-6 col-xl-3">
@@ -284,8 +290,16 @@ while ($row = mysqli_fetch_assoc($res)) {
             <div class="card card-elev p-3">
               <div class="fw-bold mb-2"><i class="fa-solid fa-clock-rotate-left me-2"></i>การเบิกล่าสุด</div>
               <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                  <thead>
+                <table class="table table-bordered table-hover table-striped align-middle mb-0">
+                  <colgroup>
+                    <col style="width: 16%">
+                    <col>
+                    <col style="width: 12%">
+                    <col style="width: 18%">
+                    <col style="width: 28%">
+                    <col style="width: 10%">
+                  </colgroup>
+                  <thead class="sticky-top bg-white" style="z-index: 1020;">
                     <tr>
                       <th>วันที่</th>
                       <th>วัสดุ</th>
@@ -297,14 +311,23 @@ while ($row = mysqli_fetch_assoc($res)) {
                   </thead>
                   <tbody>
                     <?php if (count($recent) === 0): ?>
-                      <tr><td colspan="6" class="text-center text-muted py-3">ยังไม่มีรายการ</td></tr>
+                      <tr>
+                        <td colspan="6" class="text-center py-4">
+                          <div class="text-muted">
+                            <i class="fa-solid fa-inbox fa-2x mb-2"></i>
+                            <div>ยังไม่มีรายการ</div>
+                          </div>
+                        </td>
+                      </tr>
                     <?php else: foreach ($recent as $r): ?>
                       <tr>
                         <td><?= htmlspecialchars(thaidate($r['date'], 'j M Y')) ?></td>
                         <td><?= htmlspecialchars($r['name']) ?></td>
                         <td class="text-end"><?= number_format($r['qty']) ?></td>
                         <td><?= htmlspecialchars($r['user']) ?></td>
-                        <td><?= htmlspecialchars($r['notes']) ?></td>
+                        <td title="<?= htmlspecialchars($r['notes']) ?>">
+                          <span class="d-inline-block text-truncate" style="max-width: 360px;"><?= htmlspecialchars($r['notes']) ?></span>
+                        </td>
                         <td class="text-center">
                           <a href="dispensation_form.php?id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-warning" title="แก้ไข">
                             <i class="fa-solid fa-pen-to-square"></i>

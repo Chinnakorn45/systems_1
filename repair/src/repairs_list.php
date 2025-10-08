@@ -184,22 +184,33 @@ $(document).ready(function() {
 });
 
 function deleteRepair(repairId) {
-    if (confirm('ยืนยันการลบรายการนี้?')) {
-        // สร้าง form ชั่วคราวสำหรับส่งข้อมูล
-        var form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '';
-        
-        var input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'delete_id';
-        input.value = repairId;
-        
-        form.appendChild(input);
-        document.body.appendChild(form);
-        form.submit();
-    }
+    Swal.fire({
+        title: 'ยืนยันการลบ?',
+        text: 'คุณต้องการลบรายการแจ้งซ่อมนี้หรือไม่',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'ลบข้อมูล',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // ส่งข้อมูลไปลบ
+            $.post('', { delete_id: repairId }, function() {
+                Swal.fire({
+                    title: 'ลบสำเร็จ!',
+                    text: 'ลบรายการแจ้งซ่อมเรียบร้อยแล้ว',
+                    icon: 'success',
+                    confirmButtonText: 'ตกลง'
+                }).then(() => {
+                    location.reload();
+                });
+            });
+        }
+    });
 }
+
 </script>
+<?php include 'toast.php'; ?>
 </body>
 </html>

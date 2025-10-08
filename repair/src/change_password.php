@@ -206,5 +206,6 @@ document.getElementById('password').addEventListener('input', function() {
     }
 });
 </script>
+<?php include 'toast.php'; ?>
 </body>
-</html> 
+</html>

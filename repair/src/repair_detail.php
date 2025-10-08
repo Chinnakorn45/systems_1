@@ -11,9 +11,34 @@ function ensure_fix_image_column(mysqli $conn) {
 }
 ensure_fix_image_column($conn);
 
+/* ---------------- ฟังก์ชันดึงสถานะล่าสุด (อิง log ถ้ามี มิฉะนั้นใช้จาก repairs) ---------------- */
+function get_current_status(mysqli $conn, int $repair_id) {
+    $sql = "SELECT COALESCE(latest.status, r.status) AS current_status
+            FROM repairs r
+            LEFT JOIN (
+                SELECT rl.repair_id, rl.status
+                FROM repair_logs rl
+                INNER JOIN (
+                    SELECT repair_id, MAX(updated_at) AS max_ts
+                    FROM repair_logs
+                    GROUP BY repair_id
+                ) t ON rl.repair_id = t.repair_id AND rl.updated_at = t.max_ts
+            ) latest ON latest.repair_id = r.repair_id
+            WHERE r.repair_id = ?";
+    if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param('i', $repair_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $row = $res ? $res->fetch_assoc() : null;
+        return $row['current_status'] ?? 'received';
+    }
+    return 'received';
+}
+
 /* ---------------- Badge แสดงสถานะ ---------------- */
 function status_badge($status) {
     $map = [
+        'pending'               => ['รอดำเนินการ', 'secondary'],
         'received'               => ['รับเรื่อง', 'info'],
         'evaluate_it'            => ['ประเมิน (โดย IT)', 'warning'],
         'evaluate_repairable'    => ['ประเมิน: ซ่อมได้โดย IT', 'success'],
@@ -46,7 +71,7 @@ function is_status_locked_for_it_admin($current_status) {
     return in_array($current_status, ['external_repair','procurement_managing']);
 }
 function get_past_statuses($current_status) {
-    $order = ['received','evaluate_it','evaluate_repairable','in_progress','evaluate_external','evaluate_disposal','external_repair','procurement_managing','procurement_returned','repair_completed','waiting_delivery','delivered'];
+    $order = ['pending','received','evaluate_it','evaluate_repairable','in_progress','evaluate_external','evaluate_disposal','external_repair','procurement_managing','procurement_returned','repair_completed','waiting_delivery','delivered'];
     $i = array_search($current_status, $order);
     if ($i === false) return [];
     return array_slice($order, 0, $i);
@@ -61,7 +86,7 @@ function is_status_in_user_responsibility($role, $current_status) {
     return false;
 }
 function get_allowed_statuses($role, $current_status) {
-    $all = ['received','evaluate_it','evaluate_repairable','in_progress','evaluate_external','evaluate_disposal','external_repair','procurement_managing','procurement_returned','repair_completed','waiting_delivery','delivered','cancelled'];
+    $all = ['pending','received','evaluate_it','evaluate_repairable','in_progress','evaluate_external','evaluate_disposal','external_repair','procurement_managing','procurement_returned','repair_completed','waiting_delivery','delivered','cancelled'];
 
     if ($role === 'procurement') {
         if ($current_status === 'external_repair')      return ['external_repair','procurement_managing'];
@@ -96,8 +121,7 @@ $id = intval($_GET['id']);
 $user_role = $_SESSION['role'];
 
 /* ---------------- หา “สถานะล่าสุด” ของใบงานนี้ ---------------- */
-$row_cur = $conn->query("SELECT status FROM repair_logs WHERE repair_id=$id ORDER BY updated_at DESC LIMIT 1")->fetch_assoc();
-$current_status = $row_cur['status'] ?? 'received';
+$current_status = get_current_status($conn, $id);
 
 $error = null;
 
@@ -115,9 +139,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $allowed = get_allowed_statuses($user_role, $current_status);
 
-    // บันทึกสถานะซ้ำได้เฉพาะตอนอยู่ in_progress
-    if ($status_to_update === $current_status && $current_status !== 'in_progress') {
-        $error = "ไม่สามารถบันทึกสถานะซ้ำได้ สถานะปัจจุบันคือ " . status_badge($current_status);
+    // อนุญาตให้บันทึกสถานะเดิมได้ หากมีรายละเอียด/รูปเพิ่มเข้ามา
+    $is_same_status = ($status_to_update === $current_status);
+    $has_extra_info = (trim((string)$fix_desc) !== '' || !empty($_FILES['fix_image']['name']));
+    if ($is_same_status && !$has_extra_info && $current_status !== 'in_progress') {
+        $badge_info = status_badge($current_status);
+        preg_match('/>(.*?)</', $badge_info, $m);
+        $status_th = $m[1] ?? $current_status;
+        $error = "ไม่สามารถบันทึกสถานะเดิมซ้ำได้ (สถานะปัจจุบัน: $status_th)";
     } elseif ($user_role === 'procurement') {
         if (!in_array($current_status, ['external_repair','procurement_managing','procurement_returned'])) {
             $error = "ฝ่ายพัสดุไม่สามารถดำเนินการกับสถานะนี้ได้";
@@ -147,10 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // log
         $log_stmt = $conn->prepare("INSERT INTO repair_logs (repair_id, status, detail, updated_at, updated_by) VALUES (?, ?, ?, NOW(), ?)");
-        $log_stmt->bind_param('isss', $id, $status_to_update, $fix_desc, $_SESSION['user_id']);
+        $log_stmt->bind_param('issi', $id, $status_to_update, $fix_desc, $_SESSION['user_id']);
         $log_stmt->execute();
 
-        header("Location: repair_detail.php?id=$id&status_updated=true");
+        header("Location: repair_detail.php?id=$id&status_updated=1&updated_status=" . urlencode($status_to_update));
         exit();
     }
 }
@@ -176,6 +205,7 @@ $sql = "SELECT r.*,
 $repair = $conn->query($sql)->fetch_assoc();
 
 /* ---------------- สำหรับแสดงฟอร์ม ---------------- */
+$current_status = $repair['current_status'];
 $is_in_responsibility = is_status_in_user_responsibility($user_role, $current_status);
 $allowed_statuses = get_allowed_statuses($user_role, $current_status);
 $can_show_form = $is_in_responsibility && !empty($allowed_statuses);
@@ -197,9 +227,7 @@ $can_show_form = $is_in_responsibility && !empty($allowed_statuses);
 <div class="container mt-5">
     <h3>รายละเอียดการแจ้งซ่อม</h3>
 
-    <?php if (isset($_GET['status_updated']) && $_GET['status_updated'] === 'true'): ?>
-        <div class="alert alert-success">อัปเดตข้อมูลสำเร็จ</div>
-    <?php endif; ?>
+    <?php /* แสดงผลสำเร็จด้วย SweetAlert (ดูสคริปต์ด้านล่าง) */ ?>
     <?php if (!empty($error)): ?>
         <div class="alert alert-danger"><?= $error ?></div>
     <?php endif; ?>
@@ -388,6 +416,8 @@ function previewImage(src){
   dlBtn.href = src;
   new bootstrap.Modal(document.getElementById('imgPreviewModal')).show();
 }
+
 </script>
+<?php include 'toast.php'; ?>
 </body>
 </html>

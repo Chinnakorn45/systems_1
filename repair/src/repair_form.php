@@ -5,7 +5,10 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['staff', 'admi
     header('Location: login.php'); exit;
 }
 
-// ===== บังคับให้โปรไฟล์ผู้ใช้กรอกข้อมูลให้ครบก่อนแจ้งซ่อม =====
+/* ===== ตัวช่วยแสดง SweetAlert หลัง POST ===== */
+$swal = null; // ['icon'=>'success|error|warning|info','title'=>'','text'=>'','html'=>'']
+
+/* ===== บังคับให้โปรไฟล์ผู้ใช้กรอกข้อมูลให้ครบก่อนแจ้งซ่อม ===== */
 try {
     $uid_chk = intval($_SESSION['user_id']);
     $res_u = $conn->query("SELECT username, full_name, email, department, position FROM users WHERE user_id = $uid_chk LIMIT 1");
@@ -34,12 +37,10 @@ try {
             . '  confirmButtonText: "ไปกรอกโปรไฟล์",'
             . '  allowOutsideClick: false, allowEscapeKey: false'
             . '}).then(function(){ window.location = "profile.php"; });'
-            . '</script>'
-            . '</body></html>';
+            . '</script></body></html>';
         exit;
     }
 } catch (Throwable $e) {
-    // หากตรวจสอบโปรไฟล์ผิดพลาด ให้ป้องกันการแจ้งซ่อมและให้ไปหน้าโปรไฟล์ (แสดงป๊อปอัพสวยงาม)
     echo '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>'
         . '</head><body>'
@@ -51,12 +52,11 @@ try {
         . '  confirmButtonText: "ไปที่โปรไฟล์",'
         . '  allowOutsideClick: false, allowEscapeKey: false'
         . '}).then(function(){ window.location = "profile.php"; });'
-        . '</script>'
-        . '</body></html>';
+        . '</script></body></html>';
     exit;
 }
 
-// === แผนที่สถานะ (อังกฤษ -> ไทย) สำหรับแสดงผลสวย ๆ ===
+/* === แผนที่สถานะ (อังกฤษ -> ไทย) สำหรับแจ้งซ้ำ === */
 $status_map = [
     'received'             => 'รับเรื่อง',
     'evaluate_it'          => 'ประเมิน (โดย IT)',
@@ -86,7 +86,7 @@ if ($user_res && $user_res->num_rows) {
 $error = null;
 $success = false;
 
-// handle form submit
+/* ===== Handle form submit ===== */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $location_name = $dept_name;
 
@@ -106,8 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $desc          = trim($_POST['issue_description'] ?? '');
     }
 
-    // ===== ป้องกันการแจ้งซ้ำ =====
-    // อนุญาตให้แจ้งใหม่ได้เมื่อเคสล่าสุดของชิ้นนั้นเป็น 'cancelled' หรือ 'delivered'
+    // ป้องกันแจ้งซ้ำ (ถ้าเคสล่าสุดยังไม่ cancelled/delivered)
     $dup_sql = "
         SELECT r.repair_id, COALESCE(latest.status, r.status) AS current_status, r.created_at
         FROM repairs r
@@ -131,9 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         LIMIT 1
     ";
     $stmt = $conn->prepare($dup_sql);
-    $item_id_param = $item_id; // อาจเป็น null ได้
-    $stmt->bind_param(
-        'iissss',
+    $item_id_param = $item_id; // อาจเป็น null
+    $stmt->bind_param('iissss',
         $item_id_param, $item_id_param,
         $asset_number, $asset_number,
         $serial_number, $serial_number
@@ -149,12 +147,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->close();
 
     if (!$error) {
-        // อัปโหลดรูป (ถ้ามี)
+        // อัปโหลดรูป (ถ้ามี) — ปลอดภัยขึ้นเล็กน้อย
         $img = '';
-        if (!empty($_FILES['image']['name'])) {
-            $img = 'uploads/' . uniqid('', true) . '_' . basename($_FILES['image']['name']);
+        if (!empty($_FILES['image']['name']) && is_uploaded_file($_FILES['image']['tmp_name'])) {
+            $ext = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
+            $base = preg_replace('/[^a-zA-Z0-9._-]/', '_', pathinfo($_FILES['image']['name'], PATHINFO_FILENAME));
+            $img = 'uploads/' . uniqid('rep_', true) . '_' . $base . ($ext ? '.'.$ext : '');
             @mkdir(dirname($img), 0777, true);
-            move_uploaded_file($_FILES['image']['tmp_name'], $img);
+            @move_uploaded_file($_FILES['image']['tmp_name'], $img);
         }
 
         // บันทึกเคสใหม่
@@ -168,7 +168,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->close();
         $success = true;
 
+        // แจ้งเตือนภายนอก (ถ้ามีไฟล์)
         @require_once __DIR__ . '/send_discord_notification.php';
+
+        // เตรียม SweetAlert สำเร็จ
+        $swal = [
+            'icon'  => 'success',
+            'title' => 'แจ้งซ่อมสำเร็จ',
+            'html'  => 'ระบบบันทึกคำขอของคุณแล้ว<br>เจ้าหน้าที่จะดำเนินการต่อไป'
+        ];
+    } else {
+        // เตรียม SweetAlert แจ้งซ้ำ
+        $swal = [
+            'icon'  => 'warning',
+            'title' => 'มีรายการค้างอยู่',
+            'html'  => htmlspecialchars($error, ENT_QUOTES)
+        ];
     }
 }
 
@@ -188,6 +203,8 @@ $items = $conn->query("
   <title>แจ้งซ่อมครุภัณฑ์</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="style.css">
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <style>
     .search-wrap { position: relative; }
     .search-results{
@@ -207,11 +224,7 @@ $items = $conn->query("
 <div class="container mt-5">
   <h3>แจ้งซ่อมครุภัณฑ์</h3>
 
-  <?php if ($error): ?>
-    <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
-  <?php elseif (!empty($success)): ?>
-    <div class="alert alert-success">แจ้งซ่อมสำเร็จ</div>
-  <?php endif; ?>
+  <!-- เอา Bootstrap alert ออก และใช้ SweetAlert2 แทนผ่าน JS ด้านล่าง -->
 
   <form method="post" enctype="multipart/form-data">
     <!-- ค้นหาเฉพาะ หมายเลขครุภัณฑ์ / Serial Number -->
@@ -433,5 +446,33 @@ itemSelect.addEventListener('change', function() {
   }
 })();
 </script>
+
+<script>
+/* ===== SweetAlert หลัง POST (สำเร็จ/แจ้งซ้ำ) ===== */
+<?php if ($swal): ?>
+  (function(){
+    const opt = {
+      icon: <?= json_encode($swal['icon'] ?? 'info') ?>,
+      title: <?= json_encode($swal['title'] ?? '') ?>,
+      <?= isset($swal['html']) ? ('html: '.json_encode($swal['html']).',') : ('text: '.json_encode($swal['text'] ?? '').',') ?>
+      showDenyButton: <?= json_encode(($swal['icon'] ?? '') === 'success') ?>,
+      confirmButtonText: <?= json_encode(($swal['icon'] ?? '') === 'success' ? 'ดูรายการของฉัน' : 'ตกลง') ?>,
+      denyButtonText: <?= json_encode('แจ้งใหม่') ?>
+    };
+    Swal.fire(opt).then((res) => {
+      if (<?= json_encode(($swal['icon'] ?? '') === 'success') ?>) {
+        if (res.isConfirmed) {
+          // ไปหน้ารายการของฉัน
+          window.location.href = 'my_repairs.php';
+        } else if (res.isDenied) {
+          // รีเฟรชเพื่อเคลียร์ฟอร์ม
+          window.location.reload();
+        }
+      }
+    });
+  })();
+<?php endif; ?>
+</script>
+
 </body>
 </html>

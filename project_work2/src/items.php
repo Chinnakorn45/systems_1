@@ -122,7 +122,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
             header("location: items.php"); exit;
         }
         if ($movements_block > 0) {
-            $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์ได้ เนื่องจากมีการเคลื่อนไหว/บำรุงรักษาอยู่";
+            $_SESSION['error_message'] = "ไม่สามารถลบครุภัณฑ์���ด้ เนื่องจากมีการเคลื่อนไหว/บำรุงรักษาอยู่";
             header("location: items.php"); exit;
         }
 
@@ -216,7 +216,7 @@ switch ($status) {
         $conds[] = "EXISTS (SELECT 1 FROM borrowings b2 WHERE b2.item_id = i.item_id AND b2.status IN ('borrowed','pending','overdue'))";
         break;
     case 'repair':
-        $conds[] = "EXISTS (SELECT 1 FROM repairs r WHERE r.item_id = i.item_id AND r.status NOT IN ('completed','cancelled'))";
+        $conds[] = "EXISTS (SELECT 1 FROM repairs r WHERE r.item_id = i.item_id AND r.status NOT IN ('completed','cancelled','delivered','ส่งมอบแล้ว'))";
         break;
     case 'maintenance':
         $conds[] = "EXISTS (SELECT 1 FROM equipment_movements em WHERE em.item_id = i.item_id AND em.movement_type IN ('maintenance','disposal'))";
@@ -224,7 +224,7 @@ switch ($status) {
     case 'available':
         $conds[] = "i.is_disposed = 0";
         $conds[] = "NOT EXISTS (SELECT 1 FROM borrowings b3 WHERE b3.item_id = i.item_id AND b3.status IN ('borrowed','pending','overdue'))";
-        $conds[] = "NOT EXISTS (SELECT 1 FROM repairs r2 WHERE r2.item_id = i.item_id AND r2.status NOT IN ('completed','cancelled'))";
+        $conds[] = "NOT EXISTS (SELECT 1 FROM repairs r2 WHERE r2.item_id = i.item_id AND r2.status NOT IN ('completed','cancelled','delivered','ส่งมอบแล้ว'))";
         $conds[] = "NOT EXISTS (SELECT 1 FROM equipment_movements em2 WHERE em2.item_id = i.item_id AND em2.movement_type IN ('maintenance','disposal'))";
         break;
     default:
@@ -236,6 +236,30 @@ $where = '';
 if (!empty($conds)) {
     $where = "WHERE " . implode(" AND ", $conds);
 }
+
+// ===== Pagination (20 per page) =====
+$per_page = 20;
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+
+// Count total rows with current filters
+$sql_count = "SELECT COUNT(*) AS cnt
+              FROM items i
+              LEFT JOIN categories c ON i.category_id = c.category_id
+              $where";
+$total_rows = 0;
+try {
+    $res_count = mysqli_query($link, $sql_count);
+    $row_cnt = $res_count ? mysqli_fetch_assoc($res_count) : ['cnt' => 0];
+    $total_rows = isset($row_cnt['cnt']) ? (int)$row_cnt['cnt'] : 0;
+} catch (mysqli_sql_exception $e) {
+    $total_rows = 0;
+}
+
+$total_pages = (int)ceil($total_rows / $per_page);
+if ($total_pages > 0 && $page > $total_pages) {
+    $page = $total_pages;
+}
+$offset = ($page - 1) * $per_page;
 
 /* =========================
    คิวรี่หลัก + current_status (รวม is_disposed)
@@ -254,7 +278,7 @@ $sql = "SELECT
             ) THEN 'borrowed'
             WHEN EXISTS (
               SELECT 1 FROM repairs r3 
-              WHERE r3.item_id = i.item_id AND r3.status NOT IN ('completed', 'cancelled')
+              WHERE r3.item_id = i.item_id AND r3.status NOT IN ('completed', 'cancelled', 'delivered', 'ส่งมอบแล้ว')
             ) THEN 'repair'
             WHEN EXISTS (
               SELECT 1 FROM equipment_movements em3 
@@ -270,7 +294,8 @@ $sql = "SELECT
         FROM items i
         LEFT JOIN categories c ON i.category_id = c.category_id
         $where
-        ORDER BY i.item_id DESC";
+        ORDER BY i.item_id DESC
+        LIMIT $per_page OFFSET $offset";
 
 $result = mysqli_query($link, $sql);
 
@@ -422,15 +447,15 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
           </div>
         </form>
 
-        <!-- ค้นหาแบบทันทีฝั่งหน้า (client-side) -->
+        <!-- ค้นหาทุกหน้า (server-side) -->
         <div class="mb-3">
-          <input type="text" id="itemSearch" class="form-control" style="max-width:350px;" placeholder="ค้นหารายการในหน้านี้แบบทันที (client-side)">
+          <input type="text" id="itemSearch" class="form-control" style="max-width:350px;" placeholder="ค้นหาทุกหน้า (พิมพ์แล้วระบบจะค้นหา)" value="<?= htmlspecialchars($search) ?>">
         </div>
 
         <!-- ตาราง -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 68vh; overflow-y: auto;">
+            <div class="table-responsive" style="max-height: 62vh; overflow-y: auto;">
               <table class="table table-bordered table-hover align-middle mb-0">
                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                   <tr>
@@ -477,7 +502,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                           $json = htmlspecialchars(json_encode(array_values($img_urls)), ENT_QUOTES, 'UTF-8');
                           echo '<a href="' . htmlspecialchars($first) . '" class="img-preview-link" data-images="' . $json . '" onclick="openGallery(event,this)">' .
                                '<img src="' . htmlspecialchars($first) . '" alt="img" style="max-width:60px;max-height:60px;object-fit:cover;" ' .
-                               'onerror="this.onerror=null;this.src=\'' . htmlspecialchars(asset_url('img/placeholder.png')) . '\';">' .
+                               'onerror="this.onerror=null;this.src=\'' . htmlspecialchars(asset_url('img/placeholder.png')) . '\';\">' .
                                '</a>';
                         }
                       ?>
@@ -526,6 +551,55 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
             </div><!-- /.table-responsive -->
           </div><!-- /.card-body -->
         </div><!-- /.card -->
+
+        <?php
+          // Build pagination links preserving filters (without page)
+          $page_qs = $qs; // from filters
+          $make_page_link = function($p) use ($page_qs) {
+              $params = $page_qs;
+              $params['page'] = $p;
+              return 'items.php?' . htmlspecialchars(http_build_query($params), ENT_QUOTES, 'UTF-8');
+          };
+          $display_current_page = ($total_pages > 0) ? $page : 0;
+        ?>
+
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-center gap-2 px-2 px-md-0 mt-3">
+          <div class="text-muted">
+            หน้าที่ <?= $display_current_page ?> จาก <?= $total_pages ?> หน้า (ทั้งหมด <?= (int)$total_rows ?> รายการ)
+          </div>
+          <?php if ($total_pages > 1): ?>
+          <nav aria-label="Pagination">
+            <ul class="pagination mb-0">
+              <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
+                <a class="page-link" href="<?= $page > 1 ? $make_page_link($page - 1) : '#' ?>" tabindex="-1">ก่อนหน้า</a>
+              </li>
+              <?php
+                $maxToShow = 5;
+                $start = max(1, $page - 2);
+                $end = min($total_pages, $start + $maxToShow - 1);
+                if (($end - $start + 1) < $maxToShow) {
+                  $start = max(1, $end - $maxToShow + 1);
+                }
+                if ($start > 1) {
+                  echo '<li class="page-item"><a class="page-link" href="'.$make_page_link(1).'">1</a></li>';
+                  if ($start > 2) echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                }
+                for ($i = $start; $i <= $end; $i++) {
+                  $active = ($i == $page) ? 'active' : '';
+                  echo '<li class="page-item '.$active.'"><a class="page-link" href="'.$make_page_link($i).'">'.$i.'</a></li>';
+                }
+                if ($end < $total_pages) {
+                  if ($end < $total_pages - 1) echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                  echo '<li class="page-item"><a class="page-link" href="'.$make_page_link($total_pages).'">'.$total_pages.'</a></li>';
+                }
+              ?>
+              <li class="page-item <?= $page >= $total_pages ? 'disabled' : '' ?>">
+                <a class="page-link" href="<?= $page < $total_pages ? $make_page_link($page + 1) : '#' ?>">ถัดไป</a>
+              </li>
+            </ul>
+          </nav>
+          <?php endif; ?>
+        </div>
 
       </div>
     </div>
@@ -685,37 +759,36 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // ค้นหาแบบทันทีในตาราง
+    // ค้นหาทุกหน้า (server-side): อัปเดตฟอร์มตัวกรองแล้วส่งคำขอใหม่ พร้อมรีเซ็ตไปหน้า 1
     const searchEl = document.getElementById('itemSearch');
+    const filterForm = document.querySelector('form.filters');
+    const serverSearchInput = filterForm ? filterForm.querySelector('input[name="search"]') : null;
+
+    function submitWithSearch(val) {
+      if (!filterForm || !serverSearchInput) return;
+      serverSearchInput.value = val;
+      let pageInput = filterForm.querySelector('input[name="page"]');
+      if (!pageInput) {
+        pageInput = document.createElement('input');
+        pageInput.type = 'hidden';
+        pageInput.name = 'page';
+        filterForm.appendChild(pageInput);
+      }
+      pageInput.value = '1';
+      filterForm.submit();
+    }
+
     if (searchEl) {
+      let debounceTimer;
       searchEl.addEventListener('input', function () {
-        const filter = this.value.toLowerCase();
-        const rows = document.querySelectorAll('table tbody tr');
-        let visibleCount = 0;
-
-        rows.forEach(row => {
-          const text = row.textContent.toLowerCase();
-          const show = text.includes(filter);
-          row.style.display = show ? '' : 'none';
-          if (show) visibleCount++;
-        });
-
-        let noResultsRow = document.querySelector('.no-results-row');
-        if (visibleCount === 0 && !noResultsRow) {
-          const tbody = document.querySelector('table tbody');
-          const newRow = document.createElement('tr');
-          newRow.className = 'no-results-row';
-          newRow.innerHTML = `
-            <td colspan="14" class="text-center py-4">
-              <div class="text-muted">
-                <i class="fas fa-search fa-3x mb-3"></i>
-                <h5>ไม่พบผลลัพธ์</h5>
-                <p class="mb-0">ลองค้นหาด้วยคำอื่น</p>
-              </div>
-            </td>`;
-          if (tbody) tbody.appendChild(newRow);
-        } else if (visibleCount > 0 && noResultsRow) {
-          noResultsRow.remove();
+        clearTimeout(debounceTimer);
+        const v = this.value;
+        debounceTimer = setTimeout(() => submitWithSearch(v), 500);
+      });
+      searchEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitWithSearch(searchEl.value);
         }
       });
     }

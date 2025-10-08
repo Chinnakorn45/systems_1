@@ -3,14 +3,18 @@ require_once '../config.php';
 if (!isset($_SESSION)) session_start();
 if (!isset($_SESSION["user_id"])) { header("location: ../login.php"); exit; }
 if ($_SESSION["role"] === 'staff') { header('Location: ../borrowings.php'); exit; }
-$sql_stats = "SELECT COUNT(*) as total_items, SUM(total_quantity) as total_quantity FROM items";
+$sql_stats = "SELECT COUNT(*) as total_items, COALESCE(SUM(total_quantity),0) as total_quantity FROM items";
 $result_stats = mysqli_query($link, $sql_stats);
 $equipment_stats = mysqli_fetch_assoc($result_stats);
-$sql_borrowed = "SELECT IFNULL(SUM(quantity_borrowed), 0) as borrowed_quantity FROM borrowings WHERE status IN ('borrowed', 'return_pending')";
+$sql_borrowed = "SELECT COALESCE(SUM(quantity_borrowed), 0) as borrowed_quantity FROM borrowings WHERE status IN ('borrowed', 'return_pending')";
 $result_borrowed = mysqli_query($link, $sql_borrowed);
 $borrowed_data = mysqli_fetch_assoc($result_borrowed);
-$equipment_stats['borrowed_quantity'] = $borrowed_data['borrowed_quantity'];
-$equipment_stats['available_quantity'] = $equipment_stats['total_quantity'] - $equipment_stats['borrowed_quantity'];
+// Normalize integers and guard negatives to align with on-screen summary
+$total_qty    = (int)($equipment_stats['total_quantity'] ?? 0);
+$borrowed_qty = (int)($borrowed_data['borrowed_quantity'] ?? 0);
+$available    = max(0, $total_qty - $borrowed_qty);
+$equipment_stats['borrowed_quantity']  = $borrowed_qty;
+$equipment_stats['available_quantity'] = $available;
 ?><!DOCTYPE html>
 <html lang="th">
 <head>

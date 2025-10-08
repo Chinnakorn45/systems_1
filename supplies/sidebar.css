@@ -1,79 +1,174 @@
-/* ===== Sidebar (Desktop) & Offcanvas (Mobile) ===== */
+/* ==================== Premium Sidebar & Offcanvas ==================== */
 :root{
-  --brand:#0d6efd;            /* เปลี่ยนสีหลักได้ที่นี่ */
+  /* Brand & palette */
+  --brand:#0d6efd;
+  --brand-600:#0b5ed7;
+  --brand-700:#0a58ca;
   --brand-50:#eef5ff;
-  --text:#3d4a5d;
+
+  --text:#2b3444;
   --muted:#6c757d;
   --border:#e9ecef;
   --bg:#ffffff;
+
+  /* Layout */
+  --sidebar-w: 250px;
+
+  /* Aesthetics */
+  --shadow-sm: 0 10px 30px rgba(15,23,42,.08);
+  --shadow-xs: 0 2px 10px rgba(15,23,42,.06);
+  --ring: 0 0 0 .24rem rgba(13,110,253,.16);
 }
 
+/* ===== Sidebar: fixed + ลุคพรีเมียม ===== */
 .app-sidebar{
-  background: var(--bg);
-  position: sticky;
-  top: 0;
+  position: fixed;           /* ล็อกไม่ขยับ */
+  top: 0; left: 0;
+  width: var(--sidebar-w);
   height: 100vh;
+
+  /* ผิวหรู: gradient + subtle glass */
+  background:
+    radial-gradient(1200px 600px at -20% -20%, rgba(13,110,253,.08), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, #fbfcff 70%, #f7f9ff 100%);
+  backdrop-filter: saturate(1.05) blur(4px);
+
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
+  z-index: 1030;
+
+  /* ถ้าเมนูยาว ให้ไถได้ — เปลี่ยนเป็น hidden หากไม่ต้องการสกรอลล์ */
   overflow-y: auto;
 }
 
-/* ป้ายกลุ่มเมนู */
+/* โปรไฟล์บล็อกบนสุด (ดูแพง นุ่ม) */
+.app-sidebar .p-3.border-bottom{
+  background:
+    linear-gradient(180deg, rgba(13,110,253,.06) 0%, rgba(13,110,253,0) 100%),
+    #fff;
+  padding: 1rem !important;
+  border-bottom: 1px solid var(--border);
+}
+.app-sidebar .fw-semibold{ letter-spacing:.02em; }
+.app-sidebar .small.text-muted{ color:#8a96a7 !important; }
+
+/* ===== กลุ่มหัวข้อ ===== */
 .sidebar-label{
-  font-size: .78rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: none;
-  letter-spacing: .02em;
-  padding: .6rem 1rem .25rem;
+  font-size:.78rem; font-weight:700;
+  color:#7b8797;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  padding:.8rem 1rem .35rem;
+  opacity:.9;
 }
 
-/* ลิงก์เมนู (Desktop) */
+/* ===== เมนูหลัก (Desktop) ===== */
 .sidebar-menu .nav-link{
-  display:flex; align-items:center; gap:.5rem;
+  display:flex; align-items:center; gap:.6rem;
   color: var(--text);
-  padding: .66rem 1rem;
-  border-left: 3px solid transparent;
-  border-radius: 0;
-  transition: background .15s ease, color .15s ease, border-color .15s ease;
+  padding:.68rem 1rem;
+  margin:.1rem .6rem;
+  border-radius:12px;
+  border-left:3px solid transparent;
+
+  transition: background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease;
 }
-
-.sidebar-menu .nav-link i{ width:1.25rem; text-align:center; }
-
+.sidebar-menu .nav-link i{
+  width:1.25rem; min-width:1.25rem; text-align:center; font-size:1.05rem; opacity:.92;
+}
 .sidebar-menu .nav-link:hover{
-  background: #f8f9fb;
+  background: #f5f8ff;
   color: var(--brand);
-}
-
-.sidebar-menu .nav-link.active{
-  background: var(--brand-50);
-  color: var(--brand);
-  font-weight: 600;
   border-left-color: var(--brand);
+  transform: translateX(1px);
 }
+.sidebar-menu .nav-link:focus-visible{ outline:none; box-shadow: var(--ring); }
 
-/* ===== Offcanvas (Mobile) ===== */
-.sidebar-menu-mobile .list-group-item{
-  border:0;
-  border-bottom:1px solid var(--border);
-  color: var(--text);
-  padding: .85rem 1rem;
-  display:flex; align-items:center; gap:.5rem;
-}
-
-.sidebar-menu-mobile .list-group-item:hover{
-  background:#f8f9fb; color:var(--brand);
-}
-
-.sidebar-menu-mobile .list-group-item.active{
-  background: var(--brand-50);
+/* Active: แถบซ้ายไล่เฉด + พื้นโปร่งหรู */
+.sidebar-menu .nav-link.active{
+  background:
+    linear-gradient(180deg, rgba(13,110,253,.10) 0%, rgba(13,110,253,.06) 100%),
+    var(--brand-50);
   color: var(--brand);
-  font-weight:600;
+  font-weight:700;
+  border-left-color: var(--brand);
+  box-shadow: 0 6px 16px rgba(13,110,253,.10);
 }
 
-.sidebar-menu-mobile .list-group-item i{ width:1.25rem; text-align:center; }
+/* เส้นแบ่งแบบ soft */
+.sidebar-divider{
+  height:1px; border:0; margin:.6rem 1rem;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
 
+/* ===== Offcanvas (Mobile) — ผิวเดียวกับ Sidebar ===== */
 .offcanvas-body{ padding:0; }
+.sidebar-menu-mobile .list-group-item{
+  border:0; border-bottom:1px solid var(--border);
+  color: var(--text);
+  padding:.95rem 1rem;
+  display:flex; align-items:center; gap:.6rem;
+  background: transparent;
+  transition: background .15s ease, color .15s ease;
+}
+.sidebar-menu-mobile .list-group-item i{ width:1.25rem; text-align:center; }
+.sidebar-menu-mobile .list-group-item:hover{
+  background: #f5f8ff; color: var(--brand);
+}
+.sidebar-menu-mobile .list-group-item.active{
+  background:
+    linear-gradient(180deg, rgba(13,110,253,.10) 0%, rgba(13,110,253,.06) 100%),
+    var(--brand-50);
+  color: var(--brand);
+  font-weight:700;
+}
 
-/* สกอร์ลบาร์เรียบ ๆ */
+/* ===== Scrollbar แบบพรีเมียม (เฉพาะ Sidebar) ===== */
 .app-sidebar::-webkit-scrollbar{ width:8px; }
-.app-sidebar::-webkit-scrollbar-thumb{ background:#dfe4ea; border-radius:8px; }
-.app-sidebar::-webkit-scrollbar-thumb:hover{ background:#cfd5dd; }
+.app-sidebar::-webkit-scrollbar-thumb{
+  background: linear-gradient(180deg, #e1e8ff, #d6def8);
+  border-radius:8px;
+}
+.app-sidebar::-webkit-scrollbar-thumb:hover{
+  background: linear-gradient(180deg, #cbd7ff, #c5cff7);
+}
+
+/* ===== คอนเทนต์หลักชิด Sidebar (ใช้กริด Bootstrap จัดตำแหน่ง) ===== */
+.main-content,
+.container-fluid,
+.page-content{
+  margin-left: 0;
+  transition: margin-left .2s ease;
+}
+
+/* กำหนดคอลัมน์ Sidebar ให้มีความกว้างเท่ากับ --sidebar-w เพื่อชิดกันพอดี */
+@media (min-width: 768px){
+  .sidebar-fixed-col{
+    flex: 0 0 var(--sidebar-w) !important;
+    max-width: var(--sidebar-w) !important;
+  }
+}
+
+/* ===== โหมดมือถือ: ใช้ Offcanvas แทน Fixed ===== */
+@media (max-width: 991.98px){
+  .app-sidebar{
+    position: static;
+    width: 100%;
+    height: auto;
+    box-shadow: none;
+    border-right: 0;
+    backdrop-filter: none;
+    background: #fff;
+  }
+  .main-content,
+  .container-fluid,
+  .page-content{
+    margin-left: 0;
+  }
+}
+
+/* ===== โฟกัส/การเคลื่อนไหว (ดูแพงแบบเข้มงวด UX) ===== */
+:focus-visible{ outline:none; box-shadow: var(--ring); }
+@media (prefers-reduced-motion: reduce){
+  *{ transition-duration:.01ms !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; }
+}

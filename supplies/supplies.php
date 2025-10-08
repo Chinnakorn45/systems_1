@@ -87,7 +87,7 @@ $result = mysqli_query($link, $sql);
     <link rel="stylesheet" href="<?= htmlspecialchars(asset_url('sidebar.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(asset_url('common-ui.css')) ?>">
 </head>
-<body>
+<body class="table-lock">
 <div class="container-fluid">
     <div class="row">
         <!-- Mobile Navbar (Hamburger) -->
@@ -113,28 +113,43 @@ $result = mysqli_query($link, $sql);
         <!-- Main Content -->
         <div class="col-md-9 col-lg-10 px-0">
             <div class="main-content position-relative mt-4 mt-md-5">
-                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
-                    <h2 class="mb-0"><i class="fa-solid fa-paperclip me-2"></i>วัสดุสำนักงาน</h2>
-                    <div class="d-flex align-items-center gap-2">
-                        <input type="text" id="supplySearch" class="form-control" style="max-width:350px;" placeholder="ค้นหาวัสดุสำนักงาน...">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+                    <div>
+                        <h2 class="mb-1"><i class="fa-solid fa-paperclip me-2"></i>วัสดุสำนักงาน</h2>
+                        <div class="section-subtitle">รายการทั้งหมด <?= number_format(mysqli_num_rows($result)); ?> รายการ</div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 w-100 w-md-auto">
+                        <div class="input-group" style="max-width:420px;">
+                            <span class="input-group-text bg-white"><i class="fa-solid fa-magnifying-glass"></i></span>
+                            <input type="text" id="supplySearch" class="form-control" placeholder="ค้นหาวัสดุสำนักงาน...">
+                        </div>
                         <?php if (isset($_SESSION["role"]) && $_SESSION["role"] === "admin"): ?>
+                            <a href="supply_form.php" class="btn btn-add"><i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline ms-1">เพิ่มวัสดุ</span></a>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <div class="card shadow-sm">
+                <div class="card table-card shadow-soft">
                     <div class="card-body p-0">
                         <!-- เลื่อนเฉพาะตาราง + thead sticky -->
-                        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
-                            <table class="table table-bordered table-hover align-middle mb-0">
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-hover table-striped align-middle mb-0">
+                                <colgroup>
+                                    <col style="width:22%">
+                                    <col>
+                                    <col style="width:10%">
+                                    <col style="width:12%">
+                                    <col style="width:12%">
+                                    <col style="width:12%">
+                                </colgroup>
                                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                                     <tr>
                                         <th>ชื่อวัสดุ</th>
                                         <th>รายละเอียด</th>
                                         <th>หน่วยนับ</th>
-                                        <th>จำนวนคงเหลือ</th>
-                                        <th>สต็อกขั้นต่ำ</th>
-                                        <th>จัดการ</th>
+                                        <th class="text-end">จำนวนคงเหลือ</th>
+                                        <th class="text-end">สต็อกขั้นต่ำ</th>
+                                        <th class="text-center">จัดการ</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -142,14 +157,20 @@ $result = mysqli_query($link, $sql);
                                     $row_count = 0;
                                     while ($row = mysqli_fetch_assoc($result)): 
                                         $row_count++;
+                                        $low = (int)$row['current_stock'] <= (int)$row['min_stock_level'];
                                     ?>
-                                    <tr>
+                                    <tr class="<?= $low ? 'table-warning' : '' ?>">
                                         <td><?= htmlspecialchars($row['supply_name']); ?></td>
-                                        <td><?= htmlspecialchars($row['description']); ?></td>
+                                        <td title="<?= htmlspecialchars($row['description']); ?>">
+                                            <span class="d-inline-block text-truncate" style="max-width: 520px;"><?= htmlspecialchars($row['description']); ?></span>
+                                        </td>
                                         <td><?= htmlspecialchars($row['unit']); ?></td>
-                                        <td><?= (int)$row['current_stock']; ?></td>
-                                        <td><?= (int)$row['min_stock_level']; ?></td>
-                                        <td>
+                                        <td class="text-end">
+                                            <?= (int)$row['current_stock']; ?>
+                                            <?= $low ? '<span class="badge bg-danger ms-2">ต่ำกว่าขั้นต่ำ</span>' : '' ?>
+                                        </td>
+                                        <td class="text-end"><?= (int)$row['min_stock_level']; ?></td>
+                                        <td class="text-center">
                                             <?php if (isset($_SESSION["role"]) && $_SESSION["role"] === "admin"): ?>
                                                 <a href="supply_form.php?id=<?= (int)$row['supply_id']; ?>" class="btn btn-sm btn-warning" title="แก้ไข">
                                                     <i class="fa-solid fa-pen-to-square"></i>

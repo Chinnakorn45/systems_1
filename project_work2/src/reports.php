@@ -170,7 +170,6 @@ $sql_cat = "
   FROM categories c
   LEFT JOIN items i
     ON i.category_id = c.category_id
-    AND i.is_disposed = 0
   GROUP BY c.category_id
   HAVING item_count > 0
   ORDER BY item_count DESC
@@ -591,6 +590,10 @@ $result_category_value = mysqli_query($link, $sql_category_value);
                 <input class="form-check-input" type="radio" name="printSection" id="printValue" value="value">
                 <label class="form-check-label" for="printValue">รายงานมูลค่าครุภัณฑ์</label>
               </div>
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="radio" name="printSection" id="printCategories" value="categories">
+                <label class="form-check-label" for="printCategories">รายงานหมวดหมู่ (จำนวนชิ้นต่อหมวด)</label>
+              </div>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
@@ -626,6 +629,7 @@ $result_category_value = mysqli_query($link, $sql_category_value);
     if (sel==='borrowings') url='print/report_borrowings.php';
     else if (sel==='movements') url='print/report_movements.php';
     else if (sel==='value') url='print/report_value.php';
+    else if (sel==='categories') url='print/report_categories.php';
     window.open(url, '_blank', 'width=1100,height=900');
     bootstrap.Modal.getInstance(document.getElementById('printReportModal'))?.hide();
   });

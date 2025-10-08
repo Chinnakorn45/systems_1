@@ -189,8 +189,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if ($price_per_unit === '' || !is_numeric($price_per_unit) || $price_per_unit < 0) $price_per_unit_err = "กรุณากรอกราคาต่อหน่วย (ตัวเลขไม่ติดลบ)";
     else $price_per_unit = floatval($price_per_unit);
 
-    if (strlen($serial_number) > 100) $serial_number_err = "Serial Number ต้องไม่เกิน 100 ตัวอักษร";
-    if (!empty($item_number) && strlen($item_number) > 100) $item_number_err = "เลขครุภัณฑ์ต้องไม่เกิน 100 ตัวอักษร";
+    $serial_len = function_exists('mb_strlen') ? mb_strlen($serial_number, 'UTF-8') : strlen($serial_number);
+    if ($serial_len > 100) $serial_number_err = "Serial Number ต้องไม่เกิน 100 ตัวอักษร";
+    $item_len = function_exists('mb_strlen') ? mb_strlen($item_number, 'UTF-8') : strlen($item_number);
+    if (!empty($item_number) && $item_len > 100) {
+        $item_number_err = "เลขครุภัณฑ์ต้องไม่เกิน 100 ตัวอักษร";
+        if (empty($swal_error)) { $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err; }
+    }
     if (!empty($serial_number) && !preg_match('/^[a-zA-Z0-9\-\_\.\s]+$/', $serial_number)) {
         $serial_number_err = "Serial Number ต้องประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมาย - _ . เท่านั้น";
     }
@@ -251,7 +256,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             mysqli_stmt_execute($stmt_check_item_num);
             $result_check_item_num = mysqli_stmt_get_result($stmt_check_item_num);
             $row_check_item_num = mysqli_fetch_assoc($result_check_item_num);
-            if ($row_check_item_num['cnt'] > 0) $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+            if ($row_check_item_num['cnt'] > 0) {
+                $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+                $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err;
+            }
             mysqli_stmt_close($stmt_check_item_num);
         }
     }
@@ -338,8 +346,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     echo "<script>window.location = 'item_form.php?id=" . $item_id . "&success=1';</script>";
                     exit;
                 } else {
-                    error_log("Error executing UPDATE: " . mysqli_error($link));
-                    $swal_error = 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข';
+                    $errno = mysqli_errno($link);
+                    $err   = mysqli_error($link);
+                    error_log("Error executing UPDATE ($errno): " . $err);
+                    if ($errno == 1062 && stripos($err, 'item_number') !== false) {
+                        $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+                        $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err;
+                    } else {
+                        $swal_error = 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข';
+                    }
                 }
                 mysqli_stmt_close($stmt);
             } else {
@@ -373,8 +388,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     echo "<script>window.location = 'item_form.php?success=1';</script>";
                     exit;
                 } else {
-                    error_log("Error executing INSERT: " . mysqli_error($link));
-                    $swal_error = 'เกิดข้อผิดพลาดในการบันทึกข้อมูลใหม่';
+                    $errno = mysqli_errno($link);
+                    $err   = mysqli_error($link);
+                    error_log("Error executing INSERT ($errno): " . $err);
+                    if ($errno == 1062 && stripos($err, 'item_number') !== false) {
+                        $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+                        $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err;
+                    } else {
+                        $swal_error = 'เกิดข้อผิดพลาดในการบันทึกข้อมูลใหม่';
+                    }
                 }
                 mysqli_stmt_close($stmt);
             } else {
@@ -450,6 +472,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         value="" />
             </div>
 
+            <div class="d-flex justify-content-end mt-1"><small id="item_number_counter" class="text-muted">0/100</small></div>
+
             <datalist id="item_number_list">
                 <?php foreach ($prev_item_numbers as $num): ?>
                     <option value="<?php echo htmlspecialchars($num); ?>"></option>
@@ -467,6 +491,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <input type="text" class="form-control <?php echo !empty($serial_number_err) ? 'is-invalid' : ''; ?>" id="serial_number" name="serial_number" value="<?php echo htmlspecialchars($serial_number); ?>" required maxlength="100">
                 <button type="button" class="btn btn-outline-secondary" onclick="openScannerQuagga('serial_number')"><i class="fas fa-qrcode me-1"></i> สแกน</button>
             </div>
+            <div class="d-flex justify-content-end mt-1"><small id="serial_number_counter" class="text-muted">0/100</small></div>
             <div class="invalid-feedback"><?php echo $serial_number_err; ?></div>
             <small class="form-text text-muted">Serial Number จะถูกตรวจสอบความซ้ำซ้อนอัตโนมัติ</small>
         </div>
@@ -852,6 +877,37 @@ document.addEventListener('DOMContentLoaded', function(){ updateBrand(); });
 document.addEventListener('DOMContentLoaded', function(){
   const by = document.getElementById('budget_year');
   if (by) by.addEventListener('input', function(){ this.value = this.value.replace(/\D/g,'').slice(0,4); });
+});
+
+// realtime char counters
+function bindCharCounter(inputId, counterId, max) {
+  const el = document.getElementById(inputId);
+  const counter = document.getElementById(counterId);
+  if (!el || !counter) return;
+  const update = () => {
+    const len = el.value.length;
+    counter.textContent = max ? `${len}/${max}` : `${len}`;
+    if (max) {
+      if (len > max) {
+        counter.classList.add('text-danger');
+        counter.classList.remove('text-warning');
+      } else if (len > max - 10) {
+        counter.classList.add('text-warning');
+        counter.classList.remove('text-danger');
+      } else {
+        counter.classList.remove('text-danger');
+        counter.classList.remove('text-warning');
+      }
+    }
+  };
+  el.addEventListener('input', update);
+  el.addEventListener('change', update);
+  update();
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  bindCharCounter('item_number','item_number_counter',100);
+  bindCharCounter('serial_number','serial_number_counter',100);
 });
 </script>
 

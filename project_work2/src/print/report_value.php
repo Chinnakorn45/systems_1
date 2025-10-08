@@ -3,7 +3,21 @@ require_once '../config.php';
 if (!isset($_SESSION)) session_start();
 if (!isset($_SESSION["user_id"])) { header("location: ../login.php"); exit; }
 if ($_SESSION["role"] === 'staff') { header('Location: ../borrowings.php'); exit; }
-$sql_category_value = "SELECT c.category_name, SUM(i.total_price) as category_value, COUNT(i.item_id) as item_count FROM categories c LEFT JOIN items i ON c.category_id = i.category_id WHERE i.total_price IS NOT NULL AND i.total_price > 0 GROUP BY c.category_id ORDER BY category_value DESC";
+// Charset/Collation for Thai
+mysqli_set_charset($link, 'utf8mb4');
+mysqli_query($link, "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+mysqli_query($link, "SET collation_connection = 'utf8mb4_unicode_ci'");
+
+// Align with on-screen logic in reports.php (LEFT JOIN with condition, and COALESCE)
+$sql_category_value = "
+  SELECT c.category_name,
+         COALESCE(SUM(i.total_price), 0) AS category_value,
+         COUNT(i.item_id) AS item_count
+  FROM categories c
+  LEFT JOIN items i ON c.category_id = i.category_id AND i.total_price > 0
+  GROUP BY c.category_id
+  ORDER BY category_value DESC
+";
 $result_category_value = mysqli_query($link, $sql_category_value);
 ?><!DOCTYPE html>
 <html lang="th">
