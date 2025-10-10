@@ -200,6 +200,7 @@ function normalize_image_url(string $p): string {
   <table class="table table-bordered table-sm align-middle">
     <thead>
       <tr class="text-center">
+        <th>ลำดับ</th>
         <th>เลขครุภัณฑ์</th>
         <th>Serial</th>
         <th>ยี่ห้อ</th>
@@ -223,6 +224,7 @@ function normalize_image_url(string $p): string {
         }
       ?>
       <tr>
+        <td class="text-center"><?= $count ?></td>
         <td><?= htmlspecialchars($row['item_number']) ?></td>
         <td><?= htmlspecialchars($row['serial_number'] ?? '') ?></td>
         <td><?= htmlspecialchars($row['brand'] ?? '-') ?></td>
@@ -241,10 +243,14 @@ function normalize_image_url(string $p): string {
       <?php endwhile; ?>
 
       <?php if ($count===0): ?>
-        <tr><td colspan="8" class="text-center text-muted py-4">ไม่พบข้อมูลตามตัวกรอง</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">ไม่พบข้อมูลตามตัวกรอง</td></tr>
       <?php endif; ?>
     </tbody>
   </table>
+</div>
+
+<div class="mt-2">
+  รวมทั้งหมด: <?= number_format($count) ?> รายการ
 </div>
 
 <script>
