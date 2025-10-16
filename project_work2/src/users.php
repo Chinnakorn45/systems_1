@@ -75,6 +75,7 @@ $result = $stmt->get_result();
                     <h2 class="mb-0"><i class="fas fa-users"></i> จัดการผู้ใช้</h2>
                     <input type="text" id="userSearch" class="form-control mb-2 mb-md-0" style="max-width:350px;" placeholder="ค้นหาผู้ใช้...">
                     <div>
+                        <a href="type_service_clinic.php" class="btn btn-secondary me-2"><i class="fas fa-clinic-medical"></i> จัดการประเภทบริการคลินิก</a>
                         <a href="departments.php" class="btn btn-secondary me-2"><i class="fas fa-sitemap"></i> จัดการแผนก</a>
                         <a href="add_user.php" class="btn btn-add"><i class="fas fa-user-plus"></i> เพิ่มผู้ใช้</a>
                     </div>

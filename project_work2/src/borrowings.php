@@ -291,6 +291,36 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(res => res.text())
         .then(html => {
           body.innerHTML = html;
+
+          // Enable search box for user selection inside modal
+          const selectEl = body.querySelector('select[name="new_user_id"]');
+          const searchEl = body.querySelector('#transferUserSearch');
+          if (selectEl && searchEl) {
+            const allOptions = Array.from(selectEl.options).map(o => ({ value: o.value, text: o.textContent }));
+            function renderOptions(filter) {
+              const prev = selectEl.value;
+              selectEl.innerHTML = '';
+              const ph = document.createElement('option');
+              ph.value = '';
+              ph.textContent = '-- เลือกผู้ใช้ --';
+              selectEl.appendChild(ph);
+              const f = (filter||'').trim().toLowerCase();
+              allOptions.forEach(o => {
+                if (o.value === '') return;
+                const match = !f || o.text.toLowerCase().includes(f);
+                if (match) {
+                  const opt = document.createElement('option');
+                  opt.value = o.value;
+                  opt.textContent = o.text;
+                  if (o.value === prev) opt.selected = true;
+                  selectEl.appendChild(opt);
+                }
+              });
+            }
+            renderOptions('');
+            searchEl.addEventListener('input', e => renderOptions(e.target.value));
+          }
+
           const form = document.getElementById('transferBorrowerForm');
           if (form) {
             form.addEventListener('submit', function(ev) {

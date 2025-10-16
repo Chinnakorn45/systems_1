@@ -172,6 +172,9 @@ if (!$promo_image_url) { // รูปสำรอง (ถ้ามี)
                 <a href="login_admin.php" class="admin-control-badge" style="text-decoration:none; cursor:pointer;">
                     <i class="fas fa-user-shield"></i> Admin Control
                 </a>
+                <a href="src/request_access.php" class="admin-control-badge" style="text-decoration:none; cursor:pointer; margin-left:8px;">
+                    <i class="fas fa-clipboard-check"></i> แบบฟอร์มขอใช้งานระบบ
+                </a>
 
                 <!-- การ์ดเมนูหลัก -->
                 <div class="feature-cards">

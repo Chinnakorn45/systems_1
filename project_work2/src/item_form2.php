@@ -30,6 +30,15 @@ while ($br = mysqli_fetch_assoc($brand_result)) {
     $brands[] = $br;
 }
 
+// ดึงแผนกหลัก (parent_id IS NULL)
+$main_departments = [];
+$main_result = @mysqli_query($link, "SELECT department_id, department_name FROM departments WHERE parent_id IS NULL ORDER BY department_name");
+if ($main_result) {
+    while ($row = mysqli_fetch_assoc($main_result)) {
+        $main_departments[] = $row;
+    }
+}
+
 /* ===== ดึงค่า DISTINCT สำหรับ datalist ===== */
 // ปีงบประมาณ
 $budget_years = [];
@@ -54,12 +63,26 @@ while ($lc = mysqli_fetch_assoc($loc_result)) {
     $locations_list[] = $lc['location'];
 }
 
+/* ===== ดึงเลขครุภัณฑ์เดิม (ล่าสุด 100 รายการ) สำหรับ datalist ===== */
+$prev_item_numbers = [];
+$inum_result = mysqli_query($link, "
+    SELECT item_number 
+    FROM items 
+    WHERE item_number IS NOT NULL AND item_number <> ''
+    ORDER BY item_id DESC
+    LIMIT 100
+");
+while ($in = mysqli_fetch_assoc($inum_result)) {
+    $prev_item_numbers[] = $in['item_number'];
+}
+
 /* ===== กำหนดตัวแปรเริ่มต้น ===== */
 $item_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $item_number = $serial_number = $description = $note = $category_id = $total_quantity = $location = $purchase_date = $budget_year = $price_per_unit = $total_price = '';
 $image = ''; // backward-compat single image field
 $images = []; // array of image rows from item_images
 $item_number_err = $serial_number_err = $brand_err = $category_id_err = $total_quantity_err = $budget_year_err = $price_per_unit_err = $image_err = $model_id_err = '';
+$department_required_err = '';
 $is_edit = false;
 $model_id = '';
 $brand_name_display = '';
@@ -99,6 +122,22 @@ if ($item_id > 0) {
             $note          = isset($row['note']) ? $row['note'] : '';
             $model_id      = isset($row['model_id']) ? $row['model_id'] : '';
             $is_disposed   = isset($row['is_disposed']) ? (int)$row['is_disposed'] : 0;
+
+            // สำหรับการ prefills แผนก ในโหมดแก้ไข
+            $curr_department_id = isset($row['department_id']) ? (int)$row['department_id'] : 0;
+            $curr_parent_id = 0;
+            if ($curr_department_id > 0) {
+                $qdep = @mysqli_prepare($link, "SELECT parent_id FROM departments WHERE department_id = ?");
+                if ($qdep) {
+                    mysqli_stmt_bind_param($qdep, 'i', $curr_department_id);
+                    mysqli_stmt_execute($qdep);
+                    $rdep = mysqli_stmt_get_result($qdep);
+                    if ($drow = mysqli_fetch_assoc($rdep)) {
+                        $curr_parent_id = isset($drow['parent_id']) ? (int)$drow['parent_id'] : 0;
+                    }
+                    mysqli_stmt_close($qdep);
+                }
+            }
 
             // load additional images
             $images = [];
@@ -163,6 +202,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $budget_year = trim($_POST['budget_year']);
     $price_per_unit = trim($_POST['price_per_unit']);
 
+    // Department linkage
+    $main_department = isset($_POST['main_department']) ? intval($_POST['main_department']) : 0;
+    $sub_department  = isset($_POST['sub_department']) ? intval($_POST['sub_department']) : 0;
+    $department_id   = $sub_department > 0 ? $sub_department : ($main_department > 0 ? $main_department : null);
+    $type_service_id = null;
+    if (!is_null($department_id) && $department_id > 0) {
+        $sql_ts = "SELECT type_service_id FROM departments WHERE department_id = ?";
+        if ($stmt_ts = @mysqli_prepare($link, $sql_ts)) {
+            mysqli_stmt_bind_param($stmt_ts, 'i', $department_id);
+            if (mysqli_stmt_execute($stmt_ts)) {
+                $res_ts = mysqli_stmt_get_result($stmt_ts);
+                if ($r_ts = mysqli_fetch_assoc($res_ts)) {
+                    $type_service_id = isset($r_ts['type_service_id']) ? (int)$r_ts['type_service_id'] : null;
+                }
+            }
+            mysqli_stmt_close($stmt_ts);
+        }
+    }
+
+    // ต้องเลือกแผนกหลัก/ย่อย และต้องมีประเภทบริการ (เฉพาะหน้าแก้ไขนี้บังคับ)
+    if (empty($department_id)) {
+        $department_required_err = 'กรุณาเลือกแผนกหลักและแผนก/ฝ่าย';
+        $swal_error = $department_required_err;
+    } elseif ($type_service_id === null || $type_service_id === 0) {
+        $department_required_err = 'แผนกนี้ยังไม่ได้กำหนดประเภทบริการ โปรดตั้งค่าในหน้าจัดการแผนกก่อน';
+        $swal_error = $department_required_err;
+    }
+
     // สถานะจำหน่าย
     $is_disposed = isset($_POST['is_disposed']) ? 1 : 0;
 
@@ -176,8 +243,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if ($price_per_unit === '' || !is_numeric($price_per_unit) || $price_per_unit < 0) $price_per_unit_err = "กรุณากรอกราคาต่อหน่วย (ตัวเลขไม่ติดลบ)";
     else $price_per_unit = floatval($price_per_unit);
 
-    if (strlen($serial_number) > 100) $serial_number_err = "Serial Number ต้องไม่เกิน 100 ตัวอักษร";
-    if (!empty($item_number) && strlen($item_number) > 100) $item_number_err = "เลขครุภัณฑ์ต้องไม่เกิน 100 ตัวอักษร";
+    $serial_len = function_exists('mb_strlen') ? mb_strlen($serial_number, 'UTF-8') : strlen($serial_number);
+    if ($serial_len > 100) $serial_number_err = "Serial Number ต้องไม่เกิน 100 ตัวอักษร";
+    $item_len = function_exists('mb_strlen') ? mb_strlen($item_number, 'UTF-8') : strlen($item_number);
+    if (!empty($item_number) && $item_len > 100) {
+        $item_number_err = "เลขครุภัณฑ์ต้องไม่เกิน 100 ตัวอักษร";
+        if (empty($swal_error)) { $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err; }
+    }
     if (!empty($serial_number) && !preg_match('/^[a-zA-Z0-9\-\_\.\s]+$/', $serial_number)) {
         $serial_number_err = "Serial Number ต้องประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมาย - _ . เท่านั้น";
     }
@@ -238,7 +310,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             mysqli_stmt_execute($stmt_check_item_num);
             $result_check_item_num = mysqli_stmt_get_result($stmt_check_item_num);
             $row_check_item_num = mysqli_fetch_assoc($result_check_item_num);
-            if ($row_check_item_num['cnt'] > 0) $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+            if ($row_check_item_num['cnt'] > 0) {
+                $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+                $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err;
+            }
             mysqli_stmt_close($stmt_check_item_num);
         }
     }
@@ -290,21 +365,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     // หากไม่มี error -> บันทึก
-    if (empty($serial_number_err) && empty($item_number_err) && empty($brand_err) && empty($category_id_err) && empty($total_quantity_err) && empty($budget_year_err) && empty($price_per_unit_err) && empty($image_err) && empty($model_id_err)) {
+    if (empty($serial_number_err) && empty($item_number_err) && empty($brand_err) && empty($category_id_err) && empty($total_quantity_err) && empty($budget_year_err) && empty($price_per_unit_err) && empty($image_err) && empty($model_id_err) && empty($department_required_err)) {
 
         if ($is_edit) {
             $sql = "UPDATE items 
                     SET model_name=?, item_number=?, serial_number=?, brand=?, description=?, note=?, 
                         category_id=?, total_quantity=?, image=?, location=?, purchase_date=?, budget_year=?, 
-                        price_per_unit=?, total_price=?, is_disposed=? 
+                        price_per_unit=?, total_price=?, is_disposed=?, department_id=?, type_service_id=? 
                     WHERE item_id=?";
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param(
                     $stmt,
-                    "ssssssiissssddii",
+                    "ssssssiissssddiiii",
                     $model_name, $item_number, $serial_number, $brand, $description, $note,
                     $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year,
-                    $price_per_unit, $total_price, $is_disposed, $item_id
+                    $price_per_unit, $total_price, $is_disposed, $department_id, $type_service_id, $item_id
                 );
                 if (mysqli_stmt_execute($stmt)) {
                     // แทรกรูปใหม่
@@ -325,8 +400,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     echo "<script>window.location = 'item_form.php?id=" . $item_id . "&success=1';</script>";
                     exit;
                 } else {
-                    error_log("Error executing UPDATE: " . mysqli_error($link));
-                    $swal_error = 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข';
+                    $errno = mysqli_errno($link);
+                    $err   = mysqli_error($link);
+                    error_log("Error executing UPDATE ($errno): " . $err);
+                    if ($errno == 1062 && stripos($err, 'item_number') !== false) {
+                        $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+                        $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err;
+                    } else {
+                        $swal_error = 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข';
+                    }
                 }
                 mysqli_stmt_close($stmt);
             } else {
@@ -334,14 +416,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $swal_error = 'เกิดข้อผิดพลาดในการเตรียมการอัปเดตข้อมูล';
             }
         } else {
-            $sql = "INSERT INTO items (model_name, item_number, serial_number, brand, description, note, category_id, total_quantity, image, location, purchase_date, budget_year, price_per_unit, total_price, is_disposed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO items (model_name, item_number, serial_number, brand, description, note, category_id, total_quantity, image, location, purchase_date, budget_year, price_per_unit, total_price, is_disposed, department_id, type_service_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param(
                     $stmt,
-                    "ssssssiissssddi",
+                    "ssssssiissssddiii",
                     $model_name, $item_number, $serial_number, $brand, $description, $note,
                     $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year,
-                    $price_per_unit, $total_price, $is_disposed
+                    $price_per_unit, $total_price, $is_disposed, $department_id, $type_service_id
                 );
                 if (mysqli_stmt_execute($stmt)) {
                     $new_item_id = mysqli_insert_id($link);
@@ -360,8 +442,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     echo "<script>window.location = 'item_form.php?success=1';</script>";
                     exit;
                 } else {
-                    error_log("Error executing INSERT: " . mysqli_error($link));
-                    $swal_error = 'เกิดข้อผิดพลาดในการบันทึกข้อมูลใหม่';
+                    $errno = mysqli_errno($link);
+                    $err   = mysqli_error($link);
+                    error_log("Error executing INSERT ($errno): " . $err);
+                    if ($errno == 1062 && stripos($err, 'item_number') !== false) {
+                        $item_number_err = "เลขครุภัณฑ์นี้ถูกใช้ไปแล้วในระบบ";
+                        $swal_error = 'บันทึกเลขครุภัณฑ์ไม่ได้: ' . $item_number_err;
+                    } else {
+                        $swal_error = 'เกิดข้อผิดพลาดในการบันทึกข้อมูลใหม่';
+                    }
                 }
                 mysqli_stmt_close($stmt);
             } else {
@@ -415,14 +504,39 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <div class="container">
     <h2 class="mb-4 text-center text-success"><i class="fas fa-box me-2"></i><?php echo $is_edit ? 'แก้ไข' : 'เพิ่ม'; ?>ครุภัณฑ์</h2>
     <form action="" method="post" enctype="multipart/form-data">
+
+        <!-- เลขครุภัณฑ์: ใส่ datalist + ghost hint + ปุ่มสแกน -->
         <div class="mb-3">
             <label for="item_number" class="form-label">เลขครุภัณฑ์</label>
-            <div class="input-group">
-                <input type="text" class="form-control <?php echo !empty($item_number_err) ? 'is-invalid' : ''; ?>" id="item_number" name="item_number" value="<?php echo htmlspecialchars($item_number); ?>" maxlength="100">
-                <button type="button" class="btn btn-outline-secondary" onclick="openScannerQuagga('item_number')"><i class="fas fa-qrcode me-1"></i> สแกน</button>
+
+            <!-- ชั้นซ้อนเพื่อทำ ghost hint -->
+            <div class="position-relative">
+                <input type="text"
+                        class="form-control <?php echo !empty($item_number_err) ? 'is-invalid' : ''; ?>"
+                        id="item_number" name="item_number"
+                        value="<?php echo htmlspecialchars($item_number); ?>"
+                        maxlength="100"
+                        list="item_number_list"
+                        autocomplete="off"
+                        style="background: transparent; position: relative; z-index: 2;">
+                <!-- ghost hint -->
+                <input type="text" id="item_number_hint" tabindex="-1" aria-hidden="true"
+                        class="form-control"
+                        style="position:absolute; inset:0; color:#9aa0a6; pointer-events:none; z-index:1;"
+                        value="" />
             </div>
+
+            <div class="d-flex justify-content-end mt-1"><small id="item_number_counter" class="text-muted">0/100</small></div>
+
+            <datalist id="item_number_list">
+                <?php foreach ($prev_item_numbers as $num): ?>
+                    <option value="<?php echo htmlspecialchars($num); ?>"></option>
+                <?php endforeach; ?>
+            </datalist>
+
+
             <div class="invalid-feedback"><?php echo $item_number_err; ?></div>
-            <small class="form-text text-muted">เลขครุภัณฑ์จะถูกตรวจสอบความซ้ำซ้อนอัตโนมัติ</small>
+            <small class="form-text text-muted">ระบบจะเดาและแสดงต่อท้ายอัตโนมัติและตรวจสอบความซ้ำให้ทันที</small>
         </div>
 
         <div class="mb-3">
@@ -431,6 +545,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <input type="text" class="form-control <?php echo !empty($serial_number_err) ? 'is-invalid' : ''; ?>" id="serial_number" name="serial_number" value="<?php echo htmlspecialchars($serial_number); ?>" required maxlength="100">
                 <button type="button" class="btn btn-outline-secondary" onclick="openScannerQuagga('serial_number')"><i class="fas fa-qrcode me-1"></i> สแกน</button>
             </div>
+            <div class="d-flex justify-content-end mt-1"><small id="serial_number_counter" class="text-muted">0/100</small></div>
             <div class="invalid-feedback"><?php echo $serial_number_err; ?></div>
             <small class="form-text text-muted">Serial Number จะถูกตรวจสอบความซ้ำซ้อนอัตโนมัติ</small>
         </div>
@@ -512,6 +627,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <input type="checkbox" class="form-check-input" id="is_disposed" name="is_disposed" <?php echo $is_disposed ? 'checked' : ''; ?>>
             <label class="form-check-label" for="is_disposed">จำหน่าย (ส่งคืนพัสดุ)</label>
         </div>
+
+        <!-- แผนก/ฝ่าย + ประเภทบริการ (ประเภทบริการจะขึ้นอัตโนมัติเมื่อเลือกแผนก/ฝ่าย) -->
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <label for="main_department" class="form-label">แผนกหลัก <span class="text-danger">*</span></label>
+                <select id="main_department" name="main_department" class="form-select" required>
+                    <option value="">-- เลือกแผนกหลัก --</option>
+                    <?php foreach ($main_departments as $dep): ?>
+                        <option value="<?php echo (int)$dep['department_id']; ?>"><?php echo htmlspecialchars($dep['department_name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label for="sub_department" class="form-label">แผนก/ฝ่าย <span class="text-danger">*</span></label>
+                <select id="sub_department" name="sub_department" class="form-select" required>
+                    <option value="">-- เลือกแผนก/ฝ่าย --</option>
+                </select>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label for="service_type_display" class="form-label">ประเภทบริการ <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="service_type_display" placeholder="เลือกแผนก/ฝ่าย เพื่อแสดง" readonly>
+            </div>
+        </div>
+        <small class="text-muted">เมื่อเลือกแผนก/ฝ่าย ระบบจะกรอก "ตำแหน่งที่ติดตั้ง" อัตโนมัติ</small>
 
         <!-- ตำแหน่งที่ติดตั้ง: datalist -->
         <div class="mb-3">
@@ -817,6 +956,120 @@ document.addEventListener('DOMContentLoaded', function(){
   const by = document.getElementById('budget_year');
   if (by) by.addEventListener('input', function(){ this.value = this.value.replace(/\D/g,'').slice(0,4); });
 });
+
+// realtime char counters
+function bindCharCounter(inputId, counterId, max) {
+  const el = document.getElementById(inputId);
+  const counter = document.getElementById(counterId);
+  if (!el || !counter) return;
+  const update = () => {
+    const len = el.value.length;
+    counter.textContent = max ? `${len}/${max}` : `${len}`;
+    if (max) {
+      if (len > max) {
+        counter.classList.add('text-danger');
+        counter.classList.remove('text-warning');
+      } else if (len > max - 10) {
+        counter.classList.add('text-warning');
+        counter.classList.remove('text-danger');
+      } else {
+        counter.classList.remove('text-danger');
+        counter.classList.remove('text-warning');
+      }
+    }
+  };
+  el.addEventListener('input', update);
+  el.addEventListener('change', update);
+  update();
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  bindCharCounter('item_number','item_number_counter',100);
+  bindCharCounter('serial_number','serial_number_counter',100);
+});
+</script>
+
+<script>
+// โหลดแผนกย่อย + อัปเดตประเภทบริการ และกรอกตำแหน่งติดตั้งอัตโนมัติ
+document.addEventListener('DOMContentLoaded', function() {
+    const mainSelect = document.getElementById('main_department');
+    const subSelect = document.getElementById('sub_department');
+    const serviceTypeInput = document.getElementById('service_type_display');
+    const locationInput = document.getElementById('location');
+
+    function loadSubDepartments(parentId, selectedId) {
+        if (!subSelect) return;
+        subSelect.innerHTML = '<option value="">-- เลือกแผนก/ฝ่าย --</option>';
+        if (!parentId) { if (serviceTypeInput) serviceTypeInput.value = ''; return; }
+        fetch('get_departments_children.php?parent_id=' + encodeURIComponent(parentId))
+            .then(res => res.json())
+            .then(list => {
+                list.forEach(dep => {
+                    const opt = document.createElement('option');
+                    opt.value = dep.department_id; // ใช้ id เพื่อไปดึงประเภทบริการ
+                    opt.textContent = dep.department_name;
+                    if (selectedId && String(selectedId) === String(dep.department_id)) {
+                        opt.selected = true;
+                    }
+                    subSelect.appendChild(opt);
+                });
+                // ถ้ามีค่าเริ่มต้น -> อัปเดตตำแหน่งและประเภทบริการ
+                if (selectedId) {
+                    const selOpt = subSelect.options[subSelect.selectedIndex];
+                    if (selOpt && locationInput) locationInput.value = selOpt.textContent;
+                    if (selOpt) updateServiceType(selOpt.value);
+                }
+            })
+            .catch(_ => { /* noop */ });
+    }
+
+    function updateServiceType(departmentId) {
+        if (!serviceTypeInput) return;
+        serviceTypeInput.value = '';
+        if (!departmentId) return;
+        fetch('get_department_service_type.php?department_id=' + encodeURIComponent(departmentId))
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.type_name) {
+                    serviceTypeInput.value = data.type_name + ' - ' + (data.service_status || '');
+                } else {
+                    serviceTypeInput.value = '-';
+                }
+            })
+            .catch(_ => { serviceTypeInput.value = ''; });
+    }
+
+    mainSelect?.addEventListener('change', function(){
+        loadSubDepartments(this.value);
+    });
+
+    subSelect?.addEventListener('change', function(){
+        const opt = this.options[this.selectedIndex];
+        if (locationInput && opt) locationInput.value = opt.textContent; // กรอกตำแหน่งอัตโนมัติ
+        updateServiceType(this.value);
+    });
+
+    // Prefill สำหรับโหมดแก้ไข: ถ้ามี department_id ในรายการ ให้ใช้ค่านั้นก่อน; ถ้าไม่มี ค่อย fallback ตามชื่อ location
+    const currDeptId = <?php echo isset($curr_department_id) ? (int)$curr_department_id : 0; ?>;
+    const currParentId = <?php echo isset($curr_parent_id) ? (int)$curr_parent_id : 0; ?>;
+    if (currDeptId && currParentId) {
+        if (mainSelect) mainSelect.value = String(currParentId);
+        loadSubDepartments(currParentId, currDeptId);
+    } else {
+        const initialDepartmentName = <?php echo json_encode($location); ?>;
+        if (initialDepartmentName) {
+            fetch('get_department_info.php?name=' + encodeURIComponent(initialDepartmentName))
+                .then(res => res.json())
+                .then(info => {
+                    if (info && info.department_id) {
+                        if (mainSelect) mainSelect.value = info.parent_id || '';
+                        loadSubDepartments(info.parent_id, info.department_id);
+                    }
+                })
+                .catch(_ => { /* ignore */ });
+        }
+    }
+});
 </script>
 
 <script>
@@ -852,7 +1105,7 @@ function checkDuplicateData(fieldName, value, currentItemId) {
     .then(response => response.json())
     .then(data => {
         const inputField = document.getElementById(fieldName);
-        const feedbackDiv = inputField.parentNode.querySelector('.invalid-feedback');
+        const feedbackDiv = inputField.parentNode.querySelector('.invalid-feedback') || inputField.closest('.mb-3')?.querySelector('.invalid-feedback');
         if (data.duplicate) {
             inputField.classList.add('is-invalid');
             if (feedbackDiv) feedbackDiv.textContent = data.message;
@@ -876,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', function() {
         serialNumberInput.addEventListener('blur', function() { checkDuplicateData('serial_number', this.value, currentItemId); });
         serialNumberInput.addEventListener('input', function() {
             this.classList.remove('is-invalid');
-            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback');
+            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback') || this.closest('.mb-3')?.querySelector('.invalid-feedback');
             if (feedbackDiv) feedbackDiv.textContent = '';
         });
     }
@@ -884,7 +1137,7 @@ document.addEventListener('DOMContentLoaded', function() {
         itemNumberInput.addEventListener('blur', function() { checkDuplicateData('item_number', this.value, currentItemId); });
         itemNumberInput.addEventListener('input', function() {
             this.classList.remove('is-invalid');
-            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback');
+            const feedbackDiv = this.parentNode.querySelector('.invalid-feedback') || this.closest('.mb-3')?.querySelector('.invalid-feedback');
             if (feedbackDiv) feedbackDiv.textContent = '';
         });
     }
@@ -895,6 +1148,23 @@ document.addEventListener('DOMContentLoaded', function() {
             let hasError = false;
             if (serialNumberInput && serialNumberInput.classList.contains('is-invalid')) hasError = true;
             if (itemNumberInput && itemNumberInput.classList.contains('is-invalid')) hasError = true;
+            // บังคับเลือกแผนกหลัก/ย่อย และแสดงประเภทบริการ
+            const mainSel = document.getElementById('main_department');
+            const subSel  = document.getElementById('sub_department');
+            const svcInp  = document.getElementById('service_type_display');
+            if (!mainSel || !subSel || !svcInp) {
+                // ignore
+            } else {
+                const m = (mainSel.value||'').trim();
+                const s = (subSel.value||'').trim();
+                const t = (svcInp.value||'').trim();
+                if (!m || !s || !t || t === '-') {
+                    hasError = true;
+                    e.preventDefault();
+                    Swal.fire({icon:'warning',title:'กรุณาเลือกแผนกหลัก/แผนกย่อย และตรวจสอบประเภทบริการ',confirmButtonColor:BRAND_GREEN});
+                    return false;
+                }
+            }
             if (hasError) {
                 e.preventDefault();
                 Swal.fire({icon:'warning',title:'กรุณาแก้ไขข้อผิดพลาดก่อนส่งฟอร์ม',confirmButtonColor:BRAND_GREEN});
@@ -1315,6 +1585,96 @@ function renderFormCameraPreview(){
         Swal.fire({icon:'success',title:'สำเร็จ',text:successMsg,confirmButtonText:'ตกลง',confirmButtonColor:BRAND_GREEN})
         .then(()=>{ window.location.href='items.php'; });
     }
+})();
+</script>
+
+<!-- ====== Item Number: ghost hint + history (localStorage) ====== -->
+<script>
+(function(){
+  const input = document.getElementById('item_number');
+  const hint  = document.getElementById('item_number_hint');
+  const datalist = document.getElementById('item_number_list');
+
+  if (!input || !hint || !datalist) return;
+
+  const LS_KEY = 'item_number_history';
+  const MAX_HISTORY = 100;
+
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }
+  function saveHistory(val){
+    if (!val) return;
+    const arr = loadHistory().filter(v => v !== val);
+    arr.unshift(val);
+    while (arr.length > MAX_HISTORY) arr.pop();
+    localStorage.setItem(LS_KEY, JSON.stringify(arr));
+  }
+  function mergeSuggestions() {
+    const history = loadHistory();
+    const current = Array.from(datalist.options).map(op => op.value);
+    const merged = [...history, ...current].filter((v,i,a)=>v && a.indexOf(v)===i).slice(0, 200);
+
+    datalist.innerHTML = '';
+    merged.forEach(v=>{
+      const op = document.createElement('option');
+      op.value = v;
+      datalist.appendChild(op);
+    });
+  }
+
+  function findStartsWith(prefix){
+    if (!prefix) return '';
+    prefix = prefix.toLowerCase();
+    const opts = Array.from(datalist.options).map(op => op.value);
+    for (let i=0;i<opts.length;i++){
+      const v = (opts[i]||'')+'';
+      if (v.toLowerCase().startsWith(prefix)) return v;
+    }
+    return '';
+  }
+
+  function updateGhost(){
+    const v = input.value || '';
+    const sug = findStartsWith(v);
+    if (v && sug && sug.toLowerCase() !== v.toLowerCase()){
+      hint.value = v + sug.slice(v.length);
+    } else {
+      hint.value = '';
+    }
+  }
+
+  function acceptHintIfAny(e){
+    const haveHint = hint.value && hint.value.toLowerCase().startsWith((input.value||'').toLowerCase());
+    if (!haveHint) return;
+    const keys = ['ArrowRight','End','Tab'];
+    if (keys.includes(e.key)){
+      input.value = hint.value;
+      hint.value = '';
+      if (e.key !== 'Tab') e.preventDefault();
+      input.dispatchEvent(new Event('blur'));
+    }
+  }
+
+  const form = document.querySelector('form');
+  if (form) {
+    form.addEventListener('submit', ()=>{
+      const val = (input.value||'').trim();
+      if (val) saveHistory(val);
+    });
+  }
+
+  input.addEventListener('input', updateGhost);
+  input.addEventListener('focus',  ()=>{ mergeSuggestions(); updateGhost(); });
+  input.addEventListener('keyup',  acceptHintIfAny);
+  input.addEventListener('change', updateGhost);
+
+  mergeSuggestions();
+  updateGhost();
 })();
 </script>
 </body>

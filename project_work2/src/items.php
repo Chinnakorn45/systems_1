@@ -173,8 +173,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
    ========================= */
 $search        = isset($_GET['search']) ? trim($_GET['search']) : '';
 $status        = isset($_GET['status']) ? trim($_GET['status']) : ''; // available|borrowed|repair|maintenance|disposed
-$category_id   = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
-$location_like = isset($_GET['location']) ? trim($_GET['location']) : '';
+$category_id    = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
+$location_like  = isset($_GET['location']) ? trim($_GET['location']) : '';
+$main_department= isset($_GET['main_department']) ? (int)$_GET['main_department'] : 0;
+$sub_department = isset($_GET['sub_department']) ? (int)$_GET['sub_department'] : 0;
 
 /* ====== สร้างลิงก์ไปหน้า print พร้อมพารามิเตอร์ตัวกรอง ====== */
 $qs = [];
@@ -182,6 +184,9 @@ if ($search !== '')        $qs['search']      = $search;
 if ($status !== '')        $qs['status']      = $status;
 if ($category_id > 0)      $qs['category_id'] = $category_id;
 if ($location_like !== '') $qs['location']    = $location_like;
+$qs['main_department'] = $main_department > 0 ? $main_department : null;
+$qs['sub_department']  = $sub_department  > 0 ? $sub_department  : null;
+$qs = array_filter($qs, function($v) { return $v !== null; });
 $print_url = 'print_items.php' . ($qs ? ('?' . http_build_query($qs)) : '');
 
 /* =========================
@@ -204,6 +209,14 @@ if ($category_id > 0) {
 if ($location_like !== '') {
     $esc = mysqli_real_escape_string($link, $location_like);
     $conds[] = "i.location LIKE '%$esc%'";
+}
+// กรองตามแผนกหลัก/ย่อย
+if ($sub_department > 0) {
+    $conds[] = "i.department_id = " . intval($sub_department);
+} elseif ($main_department > 0) {
+    $mid = intval($main_department);
+    // รวมทั้งแผนกหลักเองและแผนกย่อยโดยตรง
+    $conds[] = "i.department_id IN (SELECT department_id FROM departments WHERE department_id = $mid OR parent_id = $mid)";
 }
 
 /* ตัวกรองสถานะ */
@@ -303,6 +316,13 @@ $result = mysqli_query($link, $sql);
 $cats = [];
 $cat_res = mysqli_query($link, "SELECT category_id, category_name FROM categories ORDER BY category_name");
 while ($cr = mysqli_fetch_assoc($cat_res)) { $cats[] = $cr; }
+
+/* ดึงแผนกหลักสำหรับตัวกรอง */
+$main_departments = [];
+try {
+    $md_res = mysqli_query($link, "SELECT department_id, department_name FROM departments WHERE parent_id IS NULL ORDER BY department_name");
+    while ($md_res && ($mr = mysqli_fetch_assoc($md_res))) { $main_departments[] = $mr; }
+} catch (Exception $e) { $main_departments = []; }
 
 function is_sel($a, $b) { return $a===$b ? 'selected' : ''; }
 
@@ -439,6 +459,27 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 <label class="form-label mb-1">ตำแหน่ง</label>
                 <input type="text" name="location" class="form-control" value="<?= htmlspecialchars($location_like) ?>" placeholder="ห้อง/อาคาร">
               </div>
+              <div class="col-6 col-md-2">
+                <label class="form-label mb-1">แผนกหลัก</label>
+                <select id="filter_main_department" name="main_department" class="form-select">
+                  <option value="0">ทั้งหมด</option>
+                  <?php foreach ($main_departments as $md): ?>
+                    <option value="<?= (int)$md['department_id'] ?>" <?= ($main_department===$md['department_id'])?'selected':'' ?>>
+                      <?= htmlspecialchars($md['department_name']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="col-6 col-md-2">
+                <label class="form-label mb-1">แผนกย่อย</label>
+                <select id="filter_sub_department" name="sub_department" class="form-select">
+                  <option value="0">ทั้งหมด</option>
+                </select>
+              </div>
+              <div class="col-6 col-md-2">
+                <label class="form-label mb-1">ประเภทบริการ</label>
+                <input type="text" id="filter_service_type" class="form-control" placeholder="-" value="" readonly>
+              </div>
               <div class="col-12 col-md-2 text-md-end mt-2">
                 <button class="btn btn-primary me-1"><i class="fas fa-filter me-1"></i> กรอง</button>
                 <a href="items.php" class="btn btn-outline-secondary"><i class="fas fa-rotate-left me-1"></i> ล้างตัวกรอง</a>
@@ -455,7 +496,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
         <!-- ตาราง -->
         <div class="card shadow-sm">
           <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 62vh; overflow-y: auto;">
+            <div class="table-responsive" style="max-height: 54vh; overflow-y: auto;">
               <table class="table table-bordered table-hover align-middle mb-0">
                 <thead class="sticky-top bg-white" style="z-index: 1020;">
                   <tr>
@@ -819,6 +860,67 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
     });
   });
 })();
+</script>
+
+<script>
+// ตัวกรองแผนกหลัก/ย่อย + แสดงประเภทบริการอัตโนมัติ
+document.addEventListener('DOMContentLoaded', function(){
+  const mainSelect = document.getElementById('filter_main_department');
+  const subSelect  = document.getElementById('filter_sub_department');
+  const serviceInp = document.getElementById('filter_service_type');
+
+  const selectedMain = '<?= (int)$main_department ?>';
+  const selectedSub  = '<?= (int)$sub_department ?>';
+
+  function clearSub(){
+    while (subSelect.options.length > 1) subSelect.remove(1);
+  }
+
+  function updateServiceType(deptId){
+    if (!serviceInp) return;
+    serviceInp.value = '';
+    const id = parseInt(deptId||'0',10);
+    if (!id) return;
+    fetch('get_department_service_type.php?department_id=' + encodeURIComponent(id))
+      .then(r=>r.json())
+      .then(d=>{
+        if (d && d.type_name) serviceInp.value = d.type_name + ' - ' + (d.service_status||'');
+        else serviceInp.value = '-';
+      })
+      .catch(()=>{ serviceInp.value=''; });
+  }
+
+  function loadSub(parentId, selId){
+    clearSub();
+    serviceInp.value = '';
+    const pid = parseInt(parentId||'0',10);
+    if (!pid) return;
+    fetch('get_departments_children.php?parent_id=' + encodeURIComponent(pid))
+      .then(r=>r.json())
+      .then(list=>{
+        (list||[]).forEach(dep=>{
+          const opt = document.createElement('option');
+          opt.value = dep.department_id;
+          opt.textContent = dep.department_name;
+          if (selId && String(selId) === String(dep.department_id)) opt.selected = true;
+          subSelect.appendChild(opt);
+        });
+        if (subSelect.value && subSelect.value !== '0') updateServiceType(subSelect.value);
+      })
+      .catch(()=>{});
+  }
+
+  if (mainSelect) mainSelect.addEventListener('change', function(){ loadSub(this.value, 0); });
+  if (subSelect)  subSelect.addEventListener('change', function(){ updateServiceType(this.value); });
+
+  // Initial populate
+  if (selectedMain && selectedMain !== '0') {
+    if (mainSelect) mainSelect.value = selectedMain;
+    loadSub(selectedMain, selectedSub);
+  } else if (selectedSub && selectedSub !== '0') {
+    updateServiceType(selectedSub);
+  }
+});
 </script>
 
 <!-- Footer -->

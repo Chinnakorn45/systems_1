@@ -63,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['new_user_id'])) {
 <form id="transferBorrowerForm" method="post">
     <div class="mb-3">
         <label class="form-label">เลือกผู้ใช้ใหม่</label>
+        <input type="text" id="transferUserSearch" class="form-control mb-2" placeholder="พิมพ์ชื่อหรือแผนก เพื่อค้นหา...">
         <select name="new_user_id" class="form-select" required>
             <option value="">-- เลือกผู้ใช้ --</option>
             <?php while($u = mysqli_fetch_assoc($users)): ?>

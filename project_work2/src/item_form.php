@@ -30,6 +30,15 @@ while ($br = mysqli_fetch_assoc($brand_result)) {
     $brands[] = $br;
 }
 
+// ดึงแผนกหลัก (parent_id IS NULL)
+$main_departments = [];
+$main_result = @mysqli_query($link, "SELECT department_id, department_name FROM departments WHERE parent_id IS NULL ORDER BY department_name");
+if ($main_result) {
+    while ($row = mysqli_fetch_assoc($main_result)) {
+        $main_departments[] = $row;
+    }
+}
+
 /* ===== ดึงค่า DISTINCT สำหรับ datalist ===== */
 // ปีงบประมาณ
 $budget_years = [];
@@ -176,6 +185,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $budget_year = trim($_POST['budget_year']);
     $price_per_unit = trim($_POST['price_per_unit']);
 
+    // Department linkage
+    $main_department = isset($_POST['main_department']) ? intval($_POST['main_department']) : 0;
+    $sub_department  = isset($_POST['sub_department']) ? intval($_POST['sub_department']) : 0;
+    $department_id   = $sub_department > 0 ? $sub_department : ($main_department > 0 ? $main_department : null);
+    $type_service_id = null;
+    if (!is_null($department_id) && $department_id > 0) {
+        $sql_ts = "SELECT type_service_id FROM departments WHERE department_id = ?";
+        if ($stmt_ts = @mysqli_prepare($link, $sql_ts)) {
+            mysqli_stmt_bind_param($stmt_ts, 'i', $department_id);
+            if (mysqli_stmt_execute($stmt_ts)) {
+                $res_ts = mysqli_stmt_get_result($stmt_ts);
+                if ($r_ts = mysqli_fetch_assoc($res_ts)) {
+                    $type_service_id = isset($r_ts['type_service_id']) ? (int)$r_ts['type_service_id'] : null;
+                }
+            }
+            mysqli_stmt_close($stmt_ts);
+        }
+    }
+
     // สถานะจำหน่าย
     $is_disposed = isset($_POST['is_disposed']) ? 1 : 0;
 
@@ -317,15 +345,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $sql = "UPDATE items 
                     SET model_name=?, item_number=?, serial_number=?, brand=?, description=?, note=?, 
                         category_id=?, total_quantity=?, image=?, location=?, purchase_date=?, budget_year=?, 
-                        price_per_unit=?, total_price=?, is_disposed=? 
+                        price_per_unit=?, total_price=?, is_disposed=?, department_id=?, type_service_id=? 
                     WHERE item_id=?";
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param(
                     $stmt,
-                    "ssssssiissssddii",
+                    "ssssssiissssddiiii",
                     $model_name, $item_number, $serial_number, $brand, $description, $note,
                     $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year,
-                    $price_per_unit, $total_price, $is_disposed, $item_id
+                    $price_per_unit, $total_price, $is_disposed, $department_id, $type_service_id, $item_id
                 );
                 if (mysqli_stmt_execute($stmt)) {
                     // แทรกรูปใหม่
@@ -362,14 +390,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $swal_error = 'เกิดข้อผิดพลาดในการเตรียมการอัปเดตข้อมูล';
             }
         } else {
-            $sql = "INSERT INTO items (model_name, item_number, serial_number, brand, description, note, category_id, total_quantity, image, location, purchase_date, budget_year, price_per_unit, total_price, is_disposed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO items (model_name, item_number, serial_number, brand, description, note, category_id, total_quantity, image, location, purchase_date, budget_year, price_per_unit, total_price, is_disposed, department_id, type_service_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             if ($stmt = mysqli_prepare($link, $sql)) {
                 mysqli_stmt_bind_param(
                     $stmt,
-                    "ssssssiissssddi",
+                    "ssssssiissssddiii",
                     $model_name, $item_number, $serial_number, $brand, $description, $note,
                     $category_id, $total_quantity, $image, $location, $purchase_date, $budget_year,
-                    $price_per_unit, $total_price, $is_disposed
+                    $price_per_unit, $total_price, $is_disposed, $department_id, $type_service_id
                 );
                 if (mysqli_stmt_execute($stmt)) {
                     $new_item_id = mysqli_insert_id($link);
@@ -573,6 +601,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <input type="checkbox" class="form-check-input" id="is_disposed" name="is_disposed" <?php echo $is_disposed ? 'checked' : ''; ?>>
             <label class="form-check-label" for="is_disposed">จำหน่าย (ส่งคืนพัสดุ)</label>
         </div>
+
+        <!-- แผนก/ฝ่าย + ประเภทบริการ (ประเภทบริการจะขึ้นอัตโนมัติเมื่อเลือกแผนก/ฝ่าย) -->
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <label for="main_department" class="form-label">แผนกหลัก</label>
+                <select id="main_department" name="main_department" class="form-select">
+                    <option value="">-- เลือกแผนกหลัก --</option>
+                    <?php foreach ($main_departments as $dep): ?>
+                        <option value="<?php echo (int)$dep['department_id']; ?>"><?php echo htmlspecialchars($dep['department_name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label for="sub_department" class="form-label">แผนก/ฝ่าย</label>
+                <select id="sub_department" name="sub_department" class="form-select">
+                    <option value="">-- เลือกแผนก/ฝ่าย --</option>
+                </select>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label for="service_type_display" class="form-label">ประเภทบริการ</label>
+                <input type="text" class="form-control" id="service_type_display" placeholder="เลือกแผนก/ฝ่าย เพื่อแสดง" readonly>
+            </div>
+        </div>
+        <small class="text-muted">เมื่อเลือกแผนก/ฝ่าย ระบบจะกรอก "ตำแหน่งที่ติดตั้ง" อัตโนมัติ</small>
 
         <!-- ตำแหน่งที่ติดตั้ง: datalist -->
         <div class="mb-3">
@@ -908,6 +960,82 @@ function bindCharCounter(inputId, counterId, max) {
 document.addEventListener('DOMContentLoaded', function(){
   bindCharCounter('item_number','item_number_counter',100);
   bindCharCounter('serial_number','serial_number_counter',100);
+});
+</script>
+
+<script>
+// โหลดแผนกย่อย + อัปเดตประเภทบริการ และกรอกตำแหน่งติดตั้งอัตโนมัติ
+document.addEventListener('DOMContentLoaded', function() {
+    const mainSelect = document.getElementById('main_department');
+    const subSelect = document.getElementById('sub_department');
+    const serviceTypeInput = document.getElementById('service_type_display');
+    const locationInput = document.getElementById('location');
+
+    function loadSubDepartments(parentId, selectedId) {
+        if (!subSelect) return;
+        subSelect.innerHTML = '<option value="">-- เลือกแผนก/ฝ่าย --</option>';
+        if (!parentId) { if (serviceTypeInput) serviceTypeInput.value = ''; return; }
+        fetch('get_departments_children.php?parent_id=' + encodeURIComponent(parentId))
+            .then(res => res.json())
+            .then(list => {
+                list.forEach(dep => {
+                    const opt = document.createElement('option');
+                    opt.value = dep.department_id; // ใช้ id เพื่อไปดึงประเภทบริการ
+                    opt.textContent = dep.department_name;
+                    if (selectedId && String(selectedId) === String(dep.department_id)) {
+                        opt.selected = true;
+                    }
+                    subSelect.appendChild(opt);
+                });
+                // ถ้ามีค่าเริ่มต้น -> อัปเดตตำแหน่งและประเภทบริการ
+                if (selectedId) {
+                    const selOpt = subSelect.options[subSelect.selectedIndex];
+                    if (selOpt && locationInput) locationInput.value = selOpt.textContent;
+                    if (selOpt) updateServiceType(selOpt.value);
+                }
+            })
+            .catch(_ => { /* noop */ });
+    }
+
+    function updateServiceType(departmentId) {
+        if (!serviceTypeInput) return;
+        serviceTypeInput.value = '';
+        if (!departmentId) return;
+        fetch('get_department_service_type.php?department_id=' + encodeURIComponent(departmentId))
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.type_name) {
+                    serviceTypeInput.value = data.type_name + ' - ' + (data.service_status || '');
+                } else {
+                    serviceTypeInput.value = '-';
+                }
+            })
+            .catch(_ => { serviceTypeInput.value = ''; });
+    }
+
+    mainSelect?.addEventListener('change', function(){
+        loadSubDepartments(this.value);
+    });
+
+    subSelect?.addEventListener('change', function(){
+        const opt = this.options[this.selectedIndex];
+        if (locationInput && opt) locationInput.value = opt.textContent; // กรอกตำแหน่งอัตโนมัติ
+        updateServiceType(this.value);
+    });
+
+    // กรณีแก้ไข: ถ้า location เดิมตรงกับชื่อแผนก ให้ prefills
+    const initialDepartmentName = <?php echo json_encode($location); ?>;
+    if (initialDepartmentName) {
+        fetch('get_department_info.php?name=' + encodeURIComponent(initialDepartmentName))
+            .then(res => res.json())
+            .then(info => {
+                if (info && info.department_id) {
+                    if (mainSelect) mainSelect.value = info.parent_id || '';
+                    loadSubDepartments(info.parent_id, info.department_id);
+                }
+            })
+            .catch(_ => { /* ignore */ });
+    }
 });
 </script>
 

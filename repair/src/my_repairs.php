@@ -109,9 +109,7 @@ $repairs = $conn->query($sql);
     .timeline-item .desc{ color:#6c757d; font-size:.9rem; }
     .timeline-item.muted{ opacity:.75; }
 
-    /* ===== Sidebar: ทำเป็น off-canvas บนมือถือ ===== */
-    /* ใช้ได้ทั้งกรณีมี id="sidebar" หรือ class="sidebar" */
-    #sidebar, .sidebar{ width:260px; z-index:1040; }
+
     @media (max-width: 991.98px){
       #sidebar, .sidebar{
         position: fixed; top:0; left:0; height:100vh;

@@ -16,8 +16,10 @@ if ($_SESSION["role"] !== "admin") { header("location: index.php"); exit; }
 /* ===== รับตัวกรองจาก GET (เหมือน items.php) ===== */
 $search        = isset($_GET['search']) ? trim($_GET['search']) : '';
 $raw_status    = isset($_GET['status']) ? trim($_GET['status']) : '';
-$category_id   = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
-$location_like = isset($_GET['location']) ? trim($_GET['location']) : '';
+$category_id    = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
+$location_like  = isset($_GET['location']) ? trim($_GET['location']) : '';
+$main_department= isset($_GET['main_department']) ? (int)$_GET['main_department'] : 0;
+$sub_department = isset($_GET['sub_department']) ? (int)$_GET['sub_department'] : 0;
 
 /* ===== map สถานะ ไทย/อังกฤษ -> โค้ดกลาง ===== */
 $status_lc = mb_strtolower($raw_status, 'UTF-8');
@@ -64,6 +66,13 @@ if ($location_like !== '') {
     $esc = mysqli_real_escape_string($link, $location_like);
     $conds[] = "i.location LIKE '%$esc%'";
 }
+// กรองตามแผนกหลัก/ย่อย (ให้เหมือน items.php)
+if ($sub_department > 0) {
+    $conds[] = "i.department_id = " . intval($sub_department);
+} elseif ($main_department > 0) {
+    $mid = intval($main_department);
+    $conds[] = "i.department_id IN (SELECT department_id FROM departments WHERE department_id = $mid OR parent_id = $mid)";
+}
 
 /* เงื่อนไขสถานะตามโค้ดกลาง */
 switch ($status_code) {
@@ -74,7 +83,7 @@ switch ($status_code) {
         $conds[] = "EXISTS (SELECT 1 FROM borrowings b2 WHERE b2.item_id = i.item_id AND b2.status IN ('borrowed','pending','overdue'))";
         break;
     case 'repair':
-        $conds[] = "EXISTS (SELECT 1 FROM repairs r WHERE r.item_id = i.item_id AND r.status NOT IN ('completed','cancelled'))";
+        $conds[] = "EXISTS (SELECT 1 FROM repairs r WHERE r.item_id = i.item_id AND r.status NOT IN ('completed','cancelled','delivered','ส่งมอบแล้ว'))";
         break;
     case 'maintenance':
         $conds[] = "EXISTS (SELECT 1 FROM equipment_movements em WHERE em.item_id = i.item_id AND em.movement_type IN ('maintenance','disposal'))";
@@ -82,7 +91,7 @@ switch ($status_code) {
     case 'available':
         $conds[] = "i.is_disposed = 0";
         $conds[] = "NOT EXISTS (SELECT 1 FROM borrowings b3 WHERE b3.item_id = i.item_id AND b3.status IN ('borrowed','pending','overdue'))";
-        $conds[] = "NOT EXISTS (SELECT 1 FROM repairs r2 WHERE r2.item_id = i.item_id AND r2.status NOT IN ('completed','cancelled'))";
+        $conds[] = "NOT EXISTS (SELECT 1 FROM repairs r2 WHERE r2.item_id = i.item_id AND r2.status NOT IN ('completed','cancelled','delivered','ส่งมอบแล้ว'))";
         $conds[] = "NOT EXISTS (SELECT 1 FROM equipment_movements em2 WHERE em2.item_id = i.item_id AND em2.movement_type IN ('maintenance','disposal'))";
         break;
 }
@@ -151,6 +160,7 @@ function normalize_image_url(string $p): string {
 <title>พิมพ์รายการครุภัณฑ์</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
+    /* Screen defaults */
     body { font-family: "Kanit","Prompt",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; font-size: 12px; }
     table { font-size: 11px; }
     th, td { padding: 4px 6px; vertical-align: middle; }
@@ -158,12 +168,23 @@ function normalize_image_url(string $p): string {
     .print-header { display:flex; justify-content:space-between; align-items:center; margin:16px 0; }
     .print-header h4 { font-size: 16px; }
     .meta { font-size: 10px; color:#555; }
+
+    /* Reduce size specifically for print */
     @media print {
+        @page { size: A4; margin: 8mm; }
+        html, body { font-size: 10px; }
+        table { font-size: 9px; }
+        th, td { padding: 2px 4px; }
+        img.thumb { max-width: 40px; max-height: 40px; }
+        .print-header { margin: 8px 0; }
+        .print-header h4 { font-size: 14px; }
         .noprint { display:none !important; }
         table { page-break-inside:auto; }
         tr { page-break-inside:avoid; page-break-after:auto; }
         thead { display: table-header-group; }
         tfoot { display: table-footer-group; }
+        /* Most Chromium-based browsers honor zoom in print */
+        body { zoom: 0.9; }
     }
 </style>
 </head>
@@ -190,6 +211,22 @@ function normalize_image_url(string $p): string {
       }
 
       if ($location_like !== '') $filters[] = "ตำแหน่ง: " . htmlspecialchars($location_like);
+
+      // แผนกหลัก/ย่อย + ประเภทบริการ (แสดงเฉพาะข้อความ)
+      if ($sub_department > 0) {
+          $q = mysqli_query($link, "SELECT d.department_name, t.type_name, t.service_status FROM departments d LEFT JOIN type_service_clinic t ON d.type_service_id = t.id WHERE d.department_id = " . intval($sub_department));
+          if ($r = $q ? mysqli_fetch_assoc($q) : null) {
+              $filters[] = "แผนกย่อย: " . htmlspecialchars($r['department_name']);
+              if (!empty($r['type_name'])) {
+                  $filters[] = "ประเภทบริการ: " . htmlspecialchars($r['type_name'] . ' - ' . ($r['service_status'] ?? ''));
+              }
+          }
+      } elseif ($main_department > 0) {
+          $q = mysqli_query($link, "SELECT department_name FROM departments WHERE department_id = " . intval($main_department));
+          if ($r = $q ? mysqli_fetch_assoc($q) : null) {
+              $filters[] = "แผนกหลัก: " . htmlspecialchars($r['department_name']);
+          }
+      }
 
       echo !empty($filters) ? "ตัวกรอง: " . implode(" , ", $filters) : "ตัวกรอง: ทั้งหมด";
     ?>

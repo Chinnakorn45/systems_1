@@ -45,7 +45,7 @@ body {
   position: fixed;
   top: 0;
   left: 0;
-  width: 220px;
+  width: 260px;
   height: 100%;
   background: linear-gradient(180deg, var(--brand-primary-2) 0%, var(--brand-primary) 100%);
   color: #fff;
@@ -103,7 +103,7 @@ body {
   Container (กล่องเนื้อหาหลัก)
    ===================== */
 .container, .container-fluid {
-  margin-left: 260px !important; /* ระยะห่างจาก sidebar */
+  margin-left: 280px !important; /* ระยะห่างจาก sidebar */
   margin-right: 40px !important; /* ระยะขอบขวา */
   margin-bottom: 40px;
   max-width: calc(100vw - 300px); /* ป้องกันล้นขอบขวา */
