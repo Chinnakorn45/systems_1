@@ -26,6 +26,7 @@ function status_th_repair($s){
     'processing'         => 'กำลังซ่อม',
     'completed'          => 'ซ่อมเสร็จ',
     'done'               => 'ซ่อมเสร็จ',
+    'delivered'          => 'ส่งมอบแล้ว',
     'cancelled'          => 'ยกเลิก',
     'canceled'           => 'ยกเลิก',
   ];
@@ -36,7 +37,7 @@ function status_th_repair($s){
 function badge_class_repair($s){
   $s = strtolower(trim((string)$s));
   return match(true){
-    $s === 'completed' || $s === 'done' => 'ok',
+    $s === 'completed' || $s === 'done' || $s === 'delivered' => 'ok',
     in_array($s, ['pending','assigned','evaluate_it','evaluate_external','waiting_parts','cancelled','canceled'], true) => 'warn',
     default => 'info', // received / in_progress / processing / external_repair / อื่น ๆ
   };
@@ -122,6 +123,52 @@ if ($sn !== '' && table_exists($connRepair,'repairs')) {
         }
         $st->close();
       }
+    }
+  }
+
+  // ====== แปลงค่า assigned_to ให้เป็นชื่อเต็มจากตาราง users ======
+  $connUsers = null;
+  if ($repairs) {
+    if (table_exists($conn,'users')) { $connUsers = $conn; }
+    elseif (table_exists($connRepair,'users')) { $connUsers = $connRepair; }
+  }
+  if ($repairs && $connUsers) {
+    $idSet = [];
+    foreach ($repairs as $rr) {
+      $val = trim((string)($rr['assigned_to'] ?? ''));
+      if ($val !== '' && ctype_digit($val)) { $idSet[] = (int)$val; }
+    }
+    $idSet = array_values(array_unique($idSet));
+
+    $mapIdToName = [];
+    if ($idSet) {
+      $ph = implode(',', array_fill(0, count($idSet), '?'));
+      $types = str_repeat('i', count($idSet));
+      $sql = "SELECT user_id, full_name FROM users WHERE user_id IN ($ph)";
+      $st = $connUsers->prepare($sql);
+      $st->bind_param($types, ...$idSet);
+      $st->execute();
+      $rs = $st->get_result();
+      while ($rs && $u = $rs->fetch_assoc()) {
+        $mapIdToName[(int)$u['user_id']] = (string)$u['full_name'];
+      }
+      $st->close();
+    }
+
+    // เขียนค่าใหม่เพิ่มเป็น assigned_to_name (fallback เป็นค่าเดิมหากไม่พบ)
+    foreach ($repairs as $i => $rr) {
+      $raw = trim((string)($rr['assigned_to'] ?? ''));
+      $name = '-';
+      if ($raw !== '') {
+        if (ctype_digit($raw)) {
+          $id = (int)$raw;
+          $name = $mapIdToName[$id] ?? $raw;
+        } else {
+          // ถ้าเป็นข้อความอยู่แล้ว ถือว่าเป็นชื่อเต็ม
+          $name = $raw;
+        }
+      }
+      $repairs[$i]['assigned_to_name'] = $name;
     }
   }
 }
@@ -286,12 +333,38 @@ if ($item) {
     video#scannerVideo{width:100%;border-radius:10px}
     .banner{background:#fff7ed;border:1px solid #fde68a;color:#92400e;padding:10px;border-radius:8px;margin-top:10px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+    
+    /* ==== ภาพปรับตามความกว้างอุปกรณ์ ==== */
+    img{max-width:100%;height:auto}
+
+    /* ==== ปรับสำหรับหน้าจอมือถือ ==== */
+    @media (max-width: 768px){
+      .wrap{padding:0 12px}
+      .title{font-size:18px}
+
+      /* แบบฟอร์มค้นหา: เรียงแนวตั้ง แตะง่ายขึ้น */
+      .search-box{flex-direction:column}
+      .search-box input{min-width:0;width:100%;font-size:16px}
+      .search-box .btn{width:100%;font-size:16px}
+      .btn{min-height:44px}
+
+      /* ข้อมูลแบบกริดให้เป็นคอลัมน์เดียว */
+      .grid{grid-template-columns:1fr}
+
+      /* ตารางเลื่อนในแนวนอนได้ (คงโครงสร้างเดิม) */
+      table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+      th,td{font-size:14px;word-break:break-word}
+
+      /* ป๊อปอัปทั้งหน้าให้เต็มจอมือถือ */
+      .wrap.modalized{inset:0;max-width:100vw;width:100vw;max-height:100vh;border-radius:0;padding:12px}
+      .modal-close{position:sticky;top:0;float:none;width:100%;margin:-8px 0 12px 0}
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <!-- ปุ่มปิดป๊อปอัปทั้งหน้า (กดแล้วออกจากหน้านี้) -->
-    <button type="button" class="modal-close"><i class="fa fa-times"></i> ปิด</button>
+
 
     <a class="back" href="./"><i class="fa fa-arrow-left"></i> กลับหน้าหลัก</a>
 
@@ -433,7 +506,7 @@ if ($item) {
             <td><?= htmlspecialchars($r['created_at'] ? date('d/m/Y H:i', strtotime($r['created_at'])) : '-') ?></td>
             <td><span class="pill <?= $badge ?>"><?= htmlspecialchars($stText) ?></span></td>
             <td><?= htmlspecialchars($r['issue_description'] ?? '-') ?></td>
-            <td><?= htmlspecialchars($r['assigned_to'] ?? '-') ?></td>
+            <td><?= htmlspecialchars($r['assigned_to_name'] ?? ($r['assigned_to'] ?? '-')) ?></td>
             <td><?= htmlspecialchars($r['fix_description'] ?? '-') ?></td>
           </tr>
           <?php if (!empty($logsById[$rid])): ?>
