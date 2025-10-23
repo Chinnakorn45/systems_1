@@ -27,6 +27,7 @@ $role = $_SESSION['role'] ?? '';
         <li class="list-group-item"><a class="text-decoration-none" href="repair_form.php"><i class="fas fa-plus-circle me-2"></i> แจ้งซ่อมใหม่</a></li>
         <li class="list-group-item"><a class="text-decoration-none" href="calendar.php"><i class="fas fa-calendar-alt me-2"></i> ปฏิทิน</a></li>
         <li class="list-group-item"><a class="text-decoration-none" href="reports.php"><i class="fas fa-chart-bar me-2"></i> รายงาน</a></li>
+        <li class="list-group-item"><a class="text-decoration-none" href="settings.php"><i class="fas fa-cog me-2"></i> ตั้งค่าระบบ</a></li>
       <?php elseif ($role === 'procurement'): ?>
         <li class="list-group-item"><a class="text-decoration-none" href="repairs_list.php"><i class="fas fa-list me-2"></i> รายการแจ้งซ่อม</a></li>
         <li class="list-group-item"><a class="text-decoration-none" href="calendar.php"><i class="fas fa-calendar-alt me-2"></i> ปฏิทิน</a></li>
@@ -63,6 +64,7 @@ $role = $_SESSION['role'] ?? '';
             <li><a href="repair_form.php"><i class="fas fa-plus-circle me-2"></i> แจ้งซ่อมใหม่</a></li>
             <li><a href="calendar.php"><i class="fas fa-calendar-alt me-2"></i> ปฏิทิน</a></li>
             <li><a href="reports.php"><i class="fas fa-chart-bar me-2"></i> รายงาน</a></li>
+            <li><a href="settings.php"><i class="fas fa-cog me-2"></i> ตั้งค่าระบบ</a></li>
         <?php elseif ($role === 'procurement'): ?>
             <li><a href="repairs_list.php"><i class="fas fa-list me-2"></i> รายการแจ้งซ่อม</a></li>
             <li><a href="calendar.php"><i class="fas fa-calendar-alt me-2"></i> ปฏิทิน</a></li>

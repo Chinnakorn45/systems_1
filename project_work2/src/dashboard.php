@@ -72,10 +72,10 @@ $sql = "SELECT COUNT(*) AS overdue_borrowings
 $result = safe_query($link, $sql);
 $stats['overdue_borrowings'] = (int)mysqli_fetch_assoc($result)['overdue_borrowings'];
 
-/* การ์ดแจ้งซ่อม */
+/* การ์ดแจ้งซ่อม (ไม่นับรายการที่ส่งมอบแล้ว/ยกเลิก) */
 $sql = "SELECT COUNT(DISTINCT item_id) AS repair_items
         FROM repairs
-        WHERE status NOT IN ('completed','cancelled')";
+        WHERE status NOT IN ('delivered','cancelled')";
 $result = safe_query($link, $sql);
 $stats['repair_items'] = (int)mysqli_fetch_assoc($result)['repair_items'];
 
@@ -121,6 +121,56 @@ if (in_array($_SESSION['role'], ['admin','procurement'])) {
   <link rel="stylesheet" href="sidebar.css">
   <link rel="stylesheet" href="common-ui.css">
   <style>
+    /* Connected stats group for พร้อมให้ยืม / กำลังยืม / เกินกำหนด */
+    .stats-connected {
+      display: flex;
+      gap: 0;
+      width: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    .stats-connected .sc-item { flex: 1 1 0; display: flex; }
+    /* ใช้กรอบที่การ์ดด้านใน เพื่อให้ความสูงเท่ากับการ์ดเดี่ยว (ไม่มีกรอบซ้อน) */
+    .stats-connected .stats-card {
+      border: 1px solid #e9ecef !important;
+      border-left: 0 !important;
+      border-radius: 0 !important;
+      margin: 0 !important;
+      box-shadow: none !important;
+      width: 100%;
+    }
+    .stats-connected .sc-item:first-child .stats-card {
+      border-left: 1px solid #e9ecef !important;
+      border-top-left-radius: 12px !important;
+      border-bottom-left-radius: 12px !important;
+    }
+    .stats-connected .sc-item:last-child .stats-card {
+      border-top-right-radius: 12px !important;
+      border-bottom-right-radius: 12px !important;
+    }
+    /* ลบ margin ล่างของการ์ดในแถวสถิติเพื่อให้ความสูงเท่ากันเป๊ะ */
+    .stats-row .stats-card { margin-bottom: 0 !important; }
+    .stats-card.clickable { cursor: pointer; }
+
+    @media (max-width: 767.98px) {
+      .stats-connected { flex-direction: column; }
+      .stats-connected .stats-card {
+        border-left: 1px solid #e9ecef !important;
+        border-right: 1px solid #e9ecef !important;
+        border-top: 0 !important;
+        border-bottom: 1px solid #e9ecef !important;
+      }
+      .stats-connected .sc-item:first-child .stats-card {
+        border-top: 1px solid #e9ecef !important;
+        border-top-left-radius: 8px !important;
+        border-top-right-radius: 8px !important;
+      }
+      .stats-connected .sc-item:last-child .stats-card {
+        border-bottom-left-radius: 8px !important;
+        border-bottom-right-radius: 8px !important;
+      }
+    }
+
     @media (min-width: 992px) {
       .stats-card { padding: 12px 14px; }
       .stats-card .stats-icon { width: 42px; height: 42px; }
@@ -144,6 +194,24 @@ if (in_array($_SESSION['role'], ['admin','procurement'])) {
     <div class="row">
       <?php include 'sidebar.php'; ?>
       <div class="col-md-9 col-lg-10 px-0">
+        <!-- Top-right user dropdown -->
+        <div class="d-flex justify-content-end align-items-center pt-2 pe-3">
+          <div class="dropdown">
+            <button class="btn btn-light dropdown-toggle d-flex align-items-center" type="button" id="userMenu" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-user-circle fa-lg me-2 text-secondary"></i>
+              <span class="text-start">
+                <strong>สวัสดี, <?= htmlspecialchars($_SESSION["full_name"]); ?>!</strong>
+                <small class="text-muted d-block">ยินดีต้อนรับสู่ระบบบันทึกคลังครุภัณฑ์</small>
+              </span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
+              <li><a class="dropdown-item" href="profile.php"><i class="fas fa-user me-2"></i>โปรไฟล์</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-danger" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>ออกจากระบบ</a></li>
+            </ul>
+          </div>
+        </div>
+
         <div class="main-content mt-4 mt-md-5">
 
           <?php if ($pending > 0): ?>
@@ -156,21 +224,87 @@ if (in_array($_SESSION['role'], ['admin','procurement'])) {
             </div>
           <?php endif; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-              <h2>สวัสดี, <?= htmlspecialchars($_SESSION["full_name"]); ?>!</h2>
-              <p class="text-muted">ยินดีต้อนรับสู่ระบบบันทึกคลังครุภัณฑ์</p>
-            </div>
-          </div>
+          
 
-          <!-- การ์ดสถิติ -->
-          <div class="row row-cols-2 row-cols-md-3 row-cols-lg-6 g-3 mb-4">
-            <div class="col"><div class="stats-card h-100"><div class="d-flex align-items-center"><div class="stats-icon bg-primary-gradient me-3"><i class="fas fa-boxes"></i></div><div><h3 class="mb-0"><?= $stats['total_items']; ?></h3><p class="text-muted mb-0">ครุภัณฑ์ทั้งหมด</p></div></div></div></div>
-            <div class="col"><div class="stats-card h-100"><div class="d-flex align-items-center"><div class="stats-icon bg-success-gradient me-3"><i class="fas fa-check-circle"></i></div><div><h3 class="mb-0"><?= $stats['available_items']; ?></h3><p class="text-muted mb-0">พร้อมให้ยืม</p></div></div></div></div>
-            <div class="col"><div class="stats-card h-100"><div class="d-flex align-items-center"><div class="stats-icon bg-warning-gradient me-3"><i class="fas fa-clock"></i></div><div><h3 class="mb-0"><?= $stats['active_borrowed_items']; ?></h3><p class="text-muted mb-0">กำลังยืม</p></div></div></div></div>
-            <div class="col"><div class="stats-card h-100"><div class="d-flex align-items-center"><div class="stats-icon bg-info-gradient me-3"><i class="fas fa-exclamation-triangle"></i></div><div><h3 class="mb-0"><?= $stats['overdue_borrowings']; ?></h3><p class="text-muted mb-0">เกินกำหนด</p></div></div></div></div>
-            <div class="col"><div class="stats-card h-100"><div class="d-flex align-items-center"><div class="stats-icon bg-danger-gradient me-3"><i class="fas fa-screwdriver-wrench"></i></div><div><h3 class="mb-0"><?= $stats['repair_items']; ?></h3><p class="text-muted mb-0">แจ้งซ่อม</p></div></div></div></div>
-            <div class="col"><div class="stats-card h-100"><div class="d-flex align-items-center"><div class="stats-icon bg-secondary-gradient me-3"><i class="fas fa-trash"></i></div><div><h3 class="mb-0"><?= $stats['disposed_items']; ?></h3><p class="text-muted mb-0">จำหน่ายแล้ว</p></div></div></div></div>
+          <!-- การ์ดสถิติ (บรรทัดเดียวบน Desktop) -->
+          <div class="row g-3 mb-4 align-items-stretch stats-row">
+            <!-- ครุภัณฑ์ทั้งหมด -->
+            <div class="col-6 col-md-4 col-lg-2 d-flex">
+              <div class="stats-card w-100">
+                <div class="d-flex align-items-center">
+                  <div class="stats-icon bg-primary-gradient me-3"><i class="fas fa-boxes"></i></div>
+                  <div>
+                    <h3 class="mb-0"><?= $stats['total_items']; ?></h3>
+                    <p class="text-muted mb-0">ครุภัณฑ์ทั้งหมด</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- กลุ่มเชื่อม: พร้อมให้ยืม / กำลังยืม / เกินกำหนด -->
+            <div class="col-12 col-lg-6 d-flex">
+              <div class="stats-connected w-100">
+                <div class="sc-item">
+                  <div class="stats-card h-100">
+                    <div class="d-flex align-items-center">
+                      <div class="stats-icon bg-success-gradient me-3"><i class="fas fa-check-circle"></i></div>
+                      <div>
+                        <h3 class="mb-0"><?= $stats['available_items']; ?></h3>
+                        <p class="text-muted mb-0">พร้อมให้ยืม</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="sc-item">
+                  <div class="stats-card h-100 clickable js-open-list" data-list="borrowings" data-filter="active">
+                    <div class="d-flex align-items-center">
+                      <div class="stats-icon bg-warning-gradient me-3"><i class="fas fa-clock"></i></div>
+                      <div>
+                        <h3 class="mb-0"><?= $stats['active_borrowed_items']; ?></h3>
+                        <p class="text-muted mb-0">กำลังยืม</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="sc-item">
+                  <div class="stats-card h-100 clickable js-open-list" data-list="borrowings" data-filter="overdue">
+                    <div class="d-flex align-items-center">
+                      <div class="stats-icon bg-info-gradient me-3"><i class="fas fa-exclamation-triangle"></i></div>
+                      <div>
+                        <h3 class="mb-0"><?= $stats['overdue_borrowings']; ?></h3>
+                        <p class="text-muted mb-0">เกินกำหนด</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- แจ้งซ่อม -->
+            <div class="col-6 col-md-4 col-lg-2 d-flex">
+              <div class="stats-card w-100 clickable js-open-list" data-list="repairs">
+                <div class="d-flex align-items-center">
+                  <div class="stats-icon bg-danger-gradient me-3"><i class="fas fa-screwdriver-wrench"></i></div>
+                  <div>
+                    <h3 class="mb-0"><?= $stats['repair_items']; ?></h3>
+                    <p class="text-muted mb-0">แจ้งซ่อม</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- จำหน่ายแล้ว -->
+            <div class="col-6 col-md-4 col-lg-2 d-flex">
+              <div class="stats-card w-100">
+                <div class="d-flex align-items-center">
+                  <div class="stats-icon bg-secondary-gradient me-3"><i class="fas fa-trash"></i></div>
+                  <div>
+                    <h3 class="mb-0"><?= $stats['disposed_items']; ?></h3>
+                    <p class="text-muted mb-0">จำหน่ายแล้ว</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <h5 class="mb-3"><i class="fas fa-layer-group me-2"></i>หมวดหมู่ครุภัณฑ์</h5>
@@ -229,11 +363,30 @@ if (in_array($_SESSION['role'], ['admin','procurement'])) {
     </div></div></div>
   </div>
 
+  <!-- List Modal for Borrowings/Repairs -->
+  <div class="modal fade" id="listModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="listModalTitle">รายการ</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="listModalLoading" class="text-center my-4" style="display:none;">
+            <div class="spinner-border text-primary" role="status"></div>
+          </div>
+          <div id="listModalBody"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     let currentCategoryId = null;
     document.addEventListener('DOMContentLoaded', function() {
       const modal = new bootstrap.Modal(document.getElementById('categoryModal'));
+      const listModal = new bootstrap.Modal(document.getElementById('listModal'));
       document.querySelectorAll('.category-card').forEach(card => {
         card.addEventListener('click', function() {
           const catId = this.getAttribute('data-category-id');
@@ -258,6 +411,45 @@ if (in_array($_SESSION['role'], ['admin','procurement'])) {
             document.getElementById('category-items-loading').style.display = 'none';
           });
       }
+
+      // Attach click handlers for list triggers (กำลังยืม / เกินกำหนด / แจ้งซ่อม)
+      document.querySelectorAll('.js-open-list').forEach(el => {
+        el.addEventListener('click', function() {
+          const target = this.getAttribute('data-list'); // borrowings | repairs
+          const filter = this.getAttribute('data-filter') || '';
+          openListModal(target, filter);
+        });
+      });
+
+      function openListModal(target, filter) {
+        const titleEl = document.getElementById('listModalTitle');
+        const bodyEl = document.getElementById('listModalBody');
+        const loadingEl = document.getElementById('listModalLoading');
+        bodyEl.innerHTML = '';
+        loadingEl.style.display = 'block';
+
+        let url = '';
+        if (target === 'borrowings') {
+          titleEl.textContent = filter === 'overdue' ? 'รายการยืมที่เกินกำหนด' : 'รายการยืมที่กำลังยืมอยู่';
+          url = 'dashboard_borrowings_list.php?filter=' + encodeURIComponent(filter || 'active');
+        } else if (target === 'repairs') {
+          titleEl.textContent = 'รายการแจ้งซ่อม';
+          url = 'dashboard_repairs_list.php';
+        }
+
+        fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            bodyEl.innerHTML = html;
+            loadingEl.style.display = 'none';
+            listModal.show();
+          })
+          .catch(() => {
+            bodyEl.innerHTML = '<div class="alert alert-danger">ไม่สามารถโหลดข้อมูลได้</div>';
+            loadingEl.style.display = 'none';
+            listModal.show();
+          });
+      }
     });
   </script>
 
@@ -269,3 +461,4 @@ if (in_array($_SESSION['role'], ['admin','procurement'])) {
   </footer>
 </body>
 </html>
+
